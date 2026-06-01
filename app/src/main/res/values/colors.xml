@@ -105,4 +105,8 @@
 
     <!-- Scrim & Shadow (dark) -->
     <color name="md_dark_scrim">#000000</color>
+
+    <!-- Red for stop button -->
+    <color name="red_50">#FFEBEE</color>
+    <color name="red_500">#F44336</color>
 </resources>

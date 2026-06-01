@@ -35,6 +35,8 @@ sealed class ChatItem {
     data class StreamingMessage(
         override val id: String = "streaming",
         val content: String = "",
-        val isThinking: Boolean = true
+        val isThinking: Boolean = true,
+        val thinkingStartTime: Long = 0L,
+        val charCount: Int = 0
     ) : ChatItem()
 }

@@ -88,6 +88,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     private var accumulatedContent: String = ""
     private var streamingJob: Job? = null
     private var lastUIUpdateTime: Long = 0L
+    private var thinkingStartTime: Long = 0L
     private var titleGenerated: Boolean = false
 
     private val imagePickerLauncher =
@@ -202,6 +203,21 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         Toast.makeText(this, R.string.chat_copy_success, Toast.LENGTH_SHORT).show()
     }
 
+    override fun onStreamingStop() {
+        if (!isStreaming) return
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.stop_streaming_title)
+            .setMessage(R.string.stop_streaming_message)
+            .setPositiveButton(R.string.dialog_confirm) { _, _ ->
+                streamingJob?.cancel()
+                lifecycleScope.launch {
+                    finishStreaming()
+                }
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
+
     // endregion
 
     // region Send
@@ -243,7 +259,8 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                 imageUri = imageUri
             )
         )
-        items.add(ChatItem.StreamingMessage(id = "streaming_$now", isThinking = true))
+        thinkingStartTime = System.currentTimeMillis()
+        items.add(ChatItem.StreamingMessage(id = "streaming_$now", isThinking = true, thinkingStartTime = thinkingStartTime))
         currentAttachmentName = null
         currentImageUri = null
         currentImageBase64 = null
@@ -310,7 +327,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     private fun updateStreamingUI(content: String) {
         val holder = chatAdapter.findStreamingViewHolder(binding.rvMessages)
         if (holder != null) {
-            holder.updateStreamingContent(content)
+            holder.updateStreamingContent(content, thinkingStartTime, content.length)
             if (shouldAutoScroll()) {
                 binding.rvMessages.scrollToPosition(chatAdapter.itemCount - 1)
             }

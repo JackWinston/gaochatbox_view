@@ -82,6 +82,9 @@
     <string name="chat_expand">展开</string>
     <string name="chat_copy">复制</string>
     <string name="chat_copy_success">已复制到剪贴板</string>
+    <string name="chat_streaming_stats">思考 %1\$ds · %2\$d 字</string>
+    <string name="stop_streaming_title">确认中止</string>
+    <string name="stop_streaming_message">确定要中止当前回答吗？已生成的内容将会保留。</string>
     <string name="edit_title">编辑标题</string>
     <string name="dialog_title_edit_title">编辑会话标题</string>
     <string name="hint_title">输入标题</string>

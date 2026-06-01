@@ -56,6 +56,7 @@ class ChatAdapter(
     interface ChatAdapterListener {
         fun onSystemPromptToggle(position: Int)
         fun onContentLongPress(content: String)
+        fun onStreamingStop()
     }
 
     init {
@@ -241,6 +242,31 @@ class ChatAdapter(
 
                 applyExpandState(holder, content, isExpanded)
 
+                // 更新统计信息
+                val tvStats = holder.getView<TextView>(R.id.tv_stats)
+                if (streaming.thinkingStartTime > 0) {
+                    val elapsedSeconds = ((System.currentTimeMillis() - streaming.thinkingStartTime) / 1000).toInt()
+                    tvStats.text = holder.itemView.context.getString(
+                        R.string.chat_streaming_stats,
+                        elapsedSeconds,
+                        streaming.charCount
+                    )
+                    tvStats.visibility = View.VISIBLE
+                } else {
+                    tvStats.visibility = View.GONE
+                }
+
+                // 中止按钮 - 仅在流式传输过程中显示
+                val btnStop = holder.getView<View>(R.id.btn_stop)
+                if (streaming.isThinking) {
+                    btnStop.visibility = View.VISIBLE
+                    btnStop.setOnClickListener {
+                        listener?.onStreamingStop()
+                    }
+                } else {
+                    btnStop.visibility = View.GONE
+                }
+
                 holder.getView<View>(R.id.layout_header).setOnClickListener {
                     val newExpanded = !(holder.itemView.getTag(R.id.tag_streaming_expanded) as? Boolean ?: false)
                     holder.itemView.setTag(R.id.tag_streaming_expanded, newExpanded)
@@ -294,12 +320,26 @@ class ChatAdapter(
         val adapterPosition: Int
             get() = holder.adapterPosition
 
-        fun updateStreamingContent(content: String) {
+        fun updateStreamingContent(content: String, thinkingStartTime: Long = 0L, charCount: Int = 0) {
             holder.itemView.setTag(R.id.tag_streaming_content, content)
             holder.setGone(R.id.progress_thinking, true)
             holder.setText(R.id.tv_status, holder.itemView.context.getString(R.string.chat_streaming_responding))
             if (isExpanded) {
                 holder.getView<TextView>(R.id.tv_content).text = content
+            }
+
+            // 更新统计信息
+            val tvStats = holder.getView<TextView>(R.id.tv_stats)
+            if (thinkingStartTime > 0) {
+                val elapsedSeconds = ((System.currentTimeMillis() - thinkingStartTime) / 1000).toInt()
+                tvStats.text = holder.itemView.context.getString(
+                    R.string.chat_streaming_stats,
+                    elapsedSeconds,
+                    charCount
+                )
+                tvStats.visibility = View.VISIBLE
+            } else {
+                tvStats.visibility = View.GONE
             }
         }
     }
