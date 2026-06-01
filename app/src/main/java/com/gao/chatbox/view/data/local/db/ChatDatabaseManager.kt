@@ -55,6 +55,9 @@ class ChatDatabaseManager(context: Context) {
 
     suspend fun deleteConversation(id: Long) = conversationDao.deleteById(id)
 
+    suspend fun updateConversationTitle(id: Long, title: String) =
+        conversationDao.updateTitle(id, title)
+
     // ==================== Message ====================
 
     fun getMessages(conversationId: Long): Flow<List<MessageEntity>> =

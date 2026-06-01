@@ -40,4 +40,7 @@ interface ConversationDao {
 
     @Query("UPDATE conversations SET totalTokenCount = (SELECT COALESCE(SUM(tokenCount), 0) FROM messages WHERE conversationId = :convId) WHERE id = :convId")
     suspend fun recalcTokenCount(convId: Long)
+
+    @Query("UPDATE conversations SET title = :title, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateTitle(id: Long, title: String, timestamp: Long = System.currentTimeMillis())
 }

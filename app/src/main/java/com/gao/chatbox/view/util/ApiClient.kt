@@ -31,7 +31,7 @@ object ApiClient {
             .build()
     }
 
-    private fun buildOpenAiApi(baseUrl: String): OpenAiApi {
+    fun buildOpenAiApi(baseUrl: String): OpenAiApi {
         val normalized = normalizeOpenAiUrl(baseUrl)
         return Retrofit.Builder()
             .baseUrl(normalized)

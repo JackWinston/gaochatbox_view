@@ -5,6 +5,7 @@ import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
 import com.gao.chatbox.view.data.model.ModelConfig
 import com.gao.chatbox.view.data.remote.AnthropicMessage
 import com.gao.chatbox.view.data.remote.AnthropicMessageRequest
+import com.gao.chatbox.view.data.remote.AnthropicMessageResponse
 import com.gao.chatbox.view.data.remote.OpenAiChatMessage
 import com.gao.chatbox.view.data.remote.OpenAiChatRequest
 import com.gao.chatbox.view.data.remote.SseParser
@@ -116,6 +117,52 @@ class ChatRepository(context: Context) {
 
     suspend fun finishMessage(messageId: Long, fullContent: String) {
         dbManager.finishStreamingMessage(messageId, fullContent, tokenCount = 0)
+    }
+
+    suspend fun generateTitle(
+        config: ModelConfig,
+        userMessage: String,
+        assistantMessage: String
+    ): String? {
+        val model = config.defaultModel.ifEmpty { config.models.firstOrNull() ?: "" }
+        val prompt = "请根据以下对话内容生成一个简短的标题（不超过20个字），只输出标题内容，不要加引号或其他格式。\n\n用户：$userMessage\n助手：${assistantMessage.take(500)}"
+
+        return try {
+            when (config.apiType) {
+                ModelConfig.API_TYPE_ANTHROPIC -> {
+                    val api = ApiClient.buildAnthropicApi(config.apiUrl)
+                    val request = AnthropicMessageRequest(
+                        model = model,
+                        maxTokens = 100,
+                        messages = listOf(AnthropicMessage(role = "user", content = prompt)),
+                        temperature = 0.7f,
+                        stream = false
+                    )
+                    val response = api.createMessage(apiKey = config.apiKey, request = request)
+                    response.content?.firstOrNull()?.text?.trim()
+                }
+                else -> {
+                    val api = ApiClient.buildOpenAiApi(config.apiUrl)
+                    val request = OpenAiChatRequest(
+                        model = model,
+                        messages = listOf(OpenAiChatMessage(role = "user", content = prompt)),
+                        temperature = 0.7f,
+                        stream = false
+                    )
+                    val response = api.createChatCompletion(
+                        authorization = "Bearer ${config.apiKey}",
+                        request = request
+                    )
+                    response.choices?.firstOrNull()?.message?.content?.toString()?.trim()
+                }
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun updateConversationTitle(conversationId: Long, title: String) {
+        dbManager.updateConversationTitle(conversationId, title)
     }
 
     private fun buildOpenAiMessages(

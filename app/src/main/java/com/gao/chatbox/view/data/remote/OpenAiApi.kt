@@ -20,4 +20,10 @@ interface OpenAiApi {
         @Header("Authorization") authorization: String,
         @Body request: OpenAiChatRequest
     ): ResponseBody
+
+    @POST("chat/completions")
+    suspend fun createChatCompletion(
+        @Header("Authorization") authorization: String,
+        @Body request: OpenAiChatRequest
+    ): OpenAiChatResponse
 }

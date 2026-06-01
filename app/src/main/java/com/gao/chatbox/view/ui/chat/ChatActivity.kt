@@ -69,6 +69,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     private var accumulatedContent: String = ""
     private var streamingJob: Job? = null
     private var lastUIUpdateTime: Long = 0L
+    private var titleGenerated: Boolean = false
 
     private val imagePickerLauncher =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -103,6 +104,10 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         binding.toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
         binding.toolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
+                R.id.action_edit_title -> {
+                    showEditTitleDialog()
+                    true
+                }
                 R.id.action_delete -> {
                     showDeleteConfirmDialog()
                     true
@@ -305,9 +310,31 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             }
         }
 
+        // Auto-generate title after first user message
+        val userMessageCount = items.count { it is ChatItem.UserMessage }
+        if (userMessageCount == 1 && !titleGenerated) {
+            generateTitle(items)
+        }
+
         isStreaming = false
         accumulatedContent = ""
         streamingJob = null
+    }
+
+    private fun generateTitle(items: List<ChatItem>) {
+        val userMsg = items.filterIsInstance<ChatItem.UserMessage>().firstOrNull()?.content ?: return
+        val assistantMsg = accumulatedContent
+        val config = ModelConfigManager.getDefault() ?: return
+
+        lifecycleScope.launch {
+            val title = chatRepository.generateTitle(config, userMsg, assistantMsg)
+            if (!title.isNullOrBlank()) {
+                titleGenerated = true
+                systemPromptTag = title
+                binding.toolbar.title = title
+                chatRepository.updateConversationTitle(currentConversationId, title)
+            }
+        }
     }
 
     private fun showErrorMessage(message: String) {
@@ -525,6 +552,33 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     }
 
     private var dialog: AlertDialog? = null
+
+    // endregion
+
+    // region Edit Title
+
+    private fun showEditTitleDialog() {
+        val editText = android.widget.EditText(this).apply {
+            setText(systemPromptTag)
+            setSelection(systemPromptTag.length)
+            setPadding(64, 32, 64, 16)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_title_edit_title)
+            .setView(editText)
+            .setPositiveButton(R.string.dialog_confirm) { _, _ ->
+                val newTitle = editText.text.toString().trim()
+                if (newTitle.isNotEmpty()) {
+                    systemPromptTag = newTitle
+                    binding.toolbar.title = newTitle
+                    lifecycleScope.launch {
+                        chatRepository.updateConversationTitle(currentConversationId, newTitle)
+                    }
+                }
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
 
     // endregion
 

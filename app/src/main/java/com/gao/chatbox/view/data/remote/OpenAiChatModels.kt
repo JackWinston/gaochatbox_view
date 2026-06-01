@@ -29,3 +29,12 @@ data class OpenAiStreamDelta(
     @SerializedName("role") val role: String = "",
     @SerializedName("content") val content: String? = null
 )
+
+data class OpenAiChatResponse(
+    @SerializedName("id") val id: String?,
+    @SerializedName("choices") val choices: List<OpenAiResponseChoice>?
+)
+
+data class OpenAiResponseChoice(
+    @SerializedName("message") val message: OpenAiChatMessage?
+)
