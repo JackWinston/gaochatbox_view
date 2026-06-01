@@ -85,4 +85,14 @@
     <string name="edit_title">编辑标题</string>
     <string name="dialog_title_edit_title">编辑会话标题</string>
     <string name="hint_title">输入标题</string>
+
+    <!-- History -->
+    <string name="hint_search_history">搜索历史记录</string>
+    <string name="btn_filter">筛选</string>
+    <string name="filter_all">全部</string>
+    <string name="filter_by_tag">按标签筛选</string>
+    <string name="delete_conversation_title">删除会话</string>
+    <string name="delete_conversation_message">确定要删除这条会话记录吗？删除后将无法恢复。</string>
+    <string name="empty_history">暂无历史记录</string>
+    <string name="msg_conversation_deleted">会话已删除</string>
 </resources>

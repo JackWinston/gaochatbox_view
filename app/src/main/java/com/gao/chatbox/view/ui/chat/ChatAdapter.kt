@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.chad.library.adapter4.BaseMultiItemAdapter
@@ -184,12 +185,14 @@ class ChatAdapter(
                 val isExpanded = holder.itemView.getTag(R.id.tag_streaming_expanded) as? Boolean ?: false
 
                 val content = streamingContent.ifEmpty { streaming.content }
+                val progressThinking = holder.getView<ProgressBar>(R.id.progress_thinking)
+                val tvStatus = holder.getView<TextView>(R.id.tv_status)
                 if (streaming.isThinking && content.isEmpty()) {
-                    holder.setVisible(R.id.progress_thinking, true)
-                    holder.setText(R.id.tv_status, holder.itemView.context.getString(R.string.chat_thinking))
+                    progressThinking.visibility = View.VISIBLE
+                    tvStatus.text = holder.itemView.context.getString(R.string.chat_thinking)
                 } else {
-                    holder.setGone(R.id.progress_thinking, true)
-                    holder.setText(R.id.tv_status, holder.itemView.context.getString(R.string.chat_streaming_done))
+                    progressThinking.visibility = View.GONE
+                    tvStatus.text = holder.itemView.context.getString(R.string.chat_streaming_done)
                 }
 
                 applyExpandState(holder, content, isExpanded)

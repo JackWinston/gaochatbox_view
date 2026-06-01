@@ -2,6 +2,7 @@ package com.gao.chatbox.view.data.local.db
 
 import android.content.Context
 import com.gao.chatbox.view.data.local.db.entity.ConversationEntity
+import com.gao.chatbox.view.data.local.db.entity.ConversationWithLastMessage
 import com.gao.chatbox.view.data.local.db.entity.MessageEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -29,6 +30,17 @@ class ChatDatabaseManager(context: Context) {
     // ==================== Conversation ====================
 
     fun getAllConversations(): Flow<List<ConversationEntity>> = conversationDao.getAll()
+
+    fun getAllConversationsWithLastMessage(): Flow<List<ConversationWithLastMessage>> =
+        conversationDao.getAllWithLastMessage()
+
+    fun searchConversationsWithLastMessage(keyword: String): Flow<List<ConversationWithLastMessage>> =
+        conversationDao.searchWithLastMessage(keyword)
+
+    fun getConversationsByTagWithLastMessage(tag: String): Flow<List<ConversationWithLastMessage>> =
+        conversationDao.getByTagWithLastMessage(tag)
+
+    fun getDistinctTags(): Flow<List<String>> = conversationDao.getDistinctTags()
 
     fun getConversation(id: Long): Flow<ConversationEntity?> = conversationDao.getById(id)
 

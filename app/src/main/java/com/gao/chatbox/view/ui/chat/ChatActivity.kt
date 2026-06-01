@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.ExpandableListAdapter
 import android.widget.ExpandableListView
@@ -18,8 +17,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.gao.chatbox.view.R
+import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
 import com.gao.chatbox.view.data.remote.StreamEvent
 import com.gao.chatbox.view.data.repository.ChatRepository
 import com.gao.chatbox.view.data.repository.MessageContext
@@ -32,6 +31,7 @@ import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.linkify.LinkifyPlugin
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
@@ -39,12 +39,30 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     companion object {
         private const val EXTRA_SYSTEM_PROMPT_CONTENT = "system_prompt_content"
         private const val EXTRA_SYSTEM_PROMPT_TAG = "system_prompt_tag"
+        private const val EXTRA_CONVERSATION_ID = "conversation_id"
+        private const val EXTRA_DISPLAY_TAG = "display_tag"
         private const val KEY_WEB_SEARCH = "capability_web_search"
 
         fun start(context: Context, content: String, tag: String) {
             val intent = Intent(context, ChatActivity::class.java).apply {
                 putExtra(EXTRA_SYSTEM_PROMPT_CONTENT, content)
                 putExtra(EXTRA_SYSTEM_PROMPT_TAG, tag)
+            }
+            context.startActivity(intent)
+        }
+
+        fun startExisting(
+            context: Context,
+            conversationId: Long,
+            systemPromptContent: String,
+            systemPromptTag: String,
+            displayTag: String
+        ) {
+            val intent = Intent(context, ChatActivity::class.java).apply {
+                putExtra(EXTRA_CONVERSATION_ID, conversationId)
+                putExtra(EXTRA_SYSTEM_PROMPT_CONTENT, systemPromptContent)
+                putExtra(EXTRA_SYSTEM_PROMPT_TAG, systemPromptTag)
+                putExtra(EXTRA_DISPLAY_TAG, displayTag)
             }
             context.startActivity(intent)
         }
@@ -55,6 +73,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     private val mmkv: MMKV by lazy { MMKV.defaultMMKV() }
     private val chatRepository: ChatRepository by lazy { ChatRepository.getInstance(this) }
+    private val dbManager: ChatDatabaseManager by lazy { ChatDatabaseManager.getInstance(this) }
     private var systemPromptContent: String = ""
     private var systemPromptTag: String = ""
     private var webSearchEnabled: Boolean = false
@@ -100,7 +119,8 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         binding.tvSelectedModel.text = selectedModelName.ifEmpty { getString(R.string.btn_select_model) }
 
         // Toolbar
-        binding.toolbar.title = systemPromptTag
+        val displayTag = intent.getStringExtra(EXTRA_DISPLAY_TAG)
+        binding.toolbar.title = displayTag ?: systemPromptTag
         binding.toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
         binding.toolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
@@ -131,18 +151,25 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             adapter = chatAdapter
         }
 
-        // Build initial items
-        val initialItems = mutableListOf<ChatItem>()
-        initialItems.add(ChatItemBuilder.buildInitialTimestamp())
-        if (systemPromptContent.isNotBlank()) {
-            initialItems.add(
-                ChatItem.SystemPrompt(
-                    content = systemPromptContent,
-                    tag = systemPromptTag
+        // Check if opening an existing conversation
+        val existingConversationId = intent.getLongExtra(EXTRA_CONVERSATION_ID, 0L)
+        if (existingConversationId > 0L) {
+            currentConversationId = existingConversationId
+            loadExistingConversation(existingConversationId)
+        } else {
+            // Build initial items for new conversation
+            val initialItems = mutableListOf<ChatItem>()
+            initialItems.add(ChatItemBuilder.buildInitialTimestamp())
+            if (systemPromptContent.isNotBlank()) {
+                initialItems.add(
+                    ChatItem.SystemPrompt(
+                        content = systemPromptContent,
+                        tag = systemPromptTag
+                    )
                 )
-            )
+            }
+            chatAdapter.submitList(initialItems)
         }
-        chatAdapter.submitList(initialItems)
 
         // Bottom toolbar actions
         binding.btnNewChat.setOnClickListener { onNewChat() }
@@ -211,7 +238,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                 imageUri = imageUri
             )
         )
-        items.add(ChatItem.StreamingMessage(isThinking = true))
+        items.add(ChatItem.StreamingMessage(id = "streaming_$now", isThinking = true))
         currentAttachmentName = null
         currentImageUri = null
         currentImageBase64 = null
@@ -395,6 +422,53 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     private fun restartChat() {
         finish()
         start(this, systemPromptContent, systemPromptTag)
+    }
+
+    private fun loadExistingConversation(conversationId: Long) {
+        titleGenerated = true
+        lifecycleScope.launch {
+            val messages = dbManager.getMessages(conversationId).first()
+            val items = mutableListOf<ChatItem>()
+            items.add(ChatItemBuilder.buildInitialTimestamp())
+
+            if (systemPromptContent.isNotBlank()) {
+                items.add(
+                    ChatItem.SystemPrompt(
+                        content = systemPromptContent,
+                        tag = systemPromptTag
+                    )
+                )
+            }
+
+            for (msg in messages) {
+                val timestamp = ChatItemBuilder.buildTimestampIfNeeded(items, msg.createdAt)
+                if (timestamp != null) {
+                    items.add(timestamp)
+                }
+
+                when (msg.role) {
+                    ChatDatabaseManager.ROLE_USER -> {
+                        items.add(
+                            ChatItem.UserMessage(
+                                id = "msg_${msg.id}",
+                                content = msg.content
+                            )
+                        )
+                    }
+                    ChatDatabaseManager.ROLE_ASSISTANT -> {
+                        items.add(
+                            ChatItem.AssistantMessage(
+                                id = "msg_${msg.id}",
+                                content = msg.content
+                            )
+                        )
+                    }
+                }
+            }
+
+            chatAdapter.submitList(items)
+            binding.rvMessages.scrollToPosition(chatAdapter.itemCount - 1)
+        }
     }
 
     // endregion

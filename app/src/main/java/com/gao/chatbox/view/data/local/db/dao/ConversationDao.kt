@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import com.gao.chatbox.view.data.local.db.entity.ConversationEntity
+import com.gao.chatbox.view.data.local.db.entity.ConversationWithLastMessage
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -13,6 +14,47 @@ interface ConversationDao {
 
     @Query("SELECT * FROM conversations ORDER BY updatedAt DESC")
     fun getAll(): Flow<List<ConversationEntity>>
+
+    @Query("""
+        SELECT c.*, m.content AS lastMessage, m.createdAt AS lastMessageTime
+        FROM conversations c
+        LEFT JOIN (
+            SELECT conversationId, content, createdAt
+            FROM messages
+            WHERE id IN (SELECT MAX(id) FROM messages GROUP BY conversationId)
+        ) m ON c.id = m.conversationId
+        ORDER BY c.updatedAt DESC
+    """)
+    fun getAllWithLastMessage(): Flow<List<ConversationWithLastMessage>>
+
+    @Query("""
+        SELECT c.*, m.content AS lastMessage, m.createdAt AS lastMessageTime
+        FROM conversations c
+        LEFT JOIN (
+            SELECT conversationId, content, createdAt
+            FROM messages
+            WHERE id IN (SELECT MAX(id) FROM messages GROUP BY conversationId)
+        ) m ON c.id = m.conversationId
+        WHERE c.title LIKE '%' || :keyword || '%' OR c.displayTag LIKE '%' || :keyword || '%'
+        ORDER BY c.updatedAt DESC
+    """)
+    fun searchWithLastMessage(keyword: String): Flow<List<ConversationWithLastMessage>>
+
+    @Query("""
+        SELECT c.*, m.content AS lastMessage, m.createdAt AS lastMessageTime
+        FROM conversations c
+        LEFT JOIN (
+            SELECT conversationId, content, createdAt
+            FROM messages
+            WHERE id IN (SELECT MAX(id) FROM messages GROUP BY conversationId)
+        ) m ON c.id = m.conversationId
+        WHERE c.displayTag = :tag
+        ORDER BY c.updatedAt DESC
+    """)
+    fun getByTagWithLastMessage(tag: String): Flow<List<ConversationWithLastMessage>>
+
+    @Query("SELECT DISTINCT displayTag FROM conversations WHERE displayTag IS NOT NULL AND displayTag != ''")
+    fun getDistinctTags(): Flow<List<String>>
 
     @Query("SELECT * FROM conversations WHERE id = :id")
     fun getById(id: Long): Flow<ConversationEntity?>
