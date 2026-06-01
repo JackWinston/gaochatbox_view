@@ -182,6 +182,11 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         updateWebSearchIcon()
     }
 
+    override fun onResume() {
+        super.onResume()
+        chatAdapter.refreshSettings()
+    }
+
     // region ChatAdapterListener
 
     override fun onSystemPromptToggle(position: Int) {

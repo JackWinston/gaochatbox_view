@@ -37,6 +37,22 @@ class ChatAdapter(
     private val mmkv: MMKV by lazy { MMKV.defaultMMKV() }
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
+    private var showCharCount = false
+    private var showTokenCount = false
+    private var showModelName = false
+    private var showTimestamp = false
+
+    init {
+        refreshSettings()
+    }
+
+    fun refreshSettings() {
+        showCharCount = mmkv.decodeBool(KEY_SHOW_CHAR_COUNT, false)
+        showTokenCount = mmkv.decodeBool(KEY_SHOW_TOKEN_COUNT, false)
+        showModelName = mmkv.decodeBool(KEY_SHOW_MODEL_NAME, false)
+        showTimestamp = mmkv.decodeBool(KEY_SHOW_TIMESTAMP, false)
+    }
+
     interface ChatAdapterListener {
         fun onSystemPromptToggle(position: Int)
         fun onContentLongPress(content: String)
@@ -169,12 +185,6 @@ class ChatAdapter(
                 val tvContent = holder.getView<TextView>(R.id.tv_content)
                 markwon.setMarkdown(tvContent, msg.content)
 
-                // 读取设置
-                val showCharCount = mmkv.decodeBool(KEY_SHOW_CHAR_COUNT, false)
-                val showTokenCount = mmkv.decodeBool(KEY_SHOW_TOKEN_COUNT, false)
-                val showModelName = mmkv.decodeBool(KEY_SHOW_MODEL_NAME, false)
-                val showTimestamp = mmkv.decodeBool(KEY_SHOW_TIMESTAMP, false)
-
                 // 构建提示信息
                 val metaParts = mutableListOf<String>()
                 if (showCharCount) {
@@ -196,14 +206,6 @@ class ChatAdapter(
                     tvMetaInfo.visibility = View.VISIBLE
                 } else {
                     tvMetaInfo.visibility = View.GONE
-                }
-
-                // 模型名称标签（顶部）
-                if (showModelName && msg.modelName != null) {
-                    holder.setText(R.id.tv_model_name, msg.modelName)
-                    holder.setVisible(R.id.tv_model_name, true)
-                } else {
-                    holder.setGone(R.id.tv_model_name, true)
                 }
 
                 tvContent.setOnLongClickListener {
