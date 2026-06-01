@@ -169,12 +169,6 @@ class SettingsFragment : Fragment() {
                 .setSingleChoiceItems(apiTypeLabels.toTypedArray(), currentIndex) { dialog, which ->
                     val newType = apiTypeValues[which]
                     updateUiForApiType(newType)
-                    if (dialogBinding.etApiUrl.text.isNullOrEmpty()) {
-                        when (newType) {
-                            API_TYPE_OPENAI -> dialogBinding.etApiUrl.setHint("https://api.openai.com/v1")
-                            API_TYPE_ANTHROPIC -> dialogBinding.etApiUrl.setHint("https://api.anthropic.com/v1")
-                        }
-                    }
                     if (newType == API_TYPE_ANTHROPIC && dialogBinding.etContextLimit.text.isNullOrEmpty()) {
                         dialogBinding.etContextLimit.setText("200000")
                     }
