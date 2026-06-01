@@ -153,12 +153,20 @@ class SettingsFragment : Fragment() {
                 dialogBinding.btnFetchModels.visibility = View.VISIBLE
                 dialogBinding.progressFetch.visibility = View.GONE
                 dialogBinding.tilAnthropicModel.visibility = View.GONE
+                // OpenAI: 0~2.0, step 0.1
+                dialogBinding.sliderTemperature.valueTo = 200f
+                dialogBinding.sliderTemperature.stepSize = 10f
             } else {
                 dialogBinding.layoutOpenaiModel.visibility = View.GONE
                 dialogBinding.btnFetchModels.visibility = View.GONE
                 dialogBinding.progressFetch.visibility = View.GONE
                 dialogBinding.tilAnthropicModel.visibility = View.VISIBLE
+                // Anthropic: 0~1.0, step 0.05
+                dialogBinding.sliderTemperature.valueTo = 100f
+                dialogBinding.sliderTemperature.stepSize = 5f
             }
+            // 确保当前值不超过新的上限
+            dialogBinding.sliderTemperature.value = dialogBinding.sliderTemperature.value.coerceIn(0f, dialogBinding.sliderTemperature.valueTo)
         }
 
         // API 类型选择（弹窗）
@@ -200,11 +208,12 @@ class SettingsFragment : Fragment() {
             dialogBinding.etApiUrl.setText(existing.apiUrl)
             dialogBinding.etApiKey.setText(existing.apiKey)
             dialogBinding.etContextLimit.setText(existing.contextLimit.toString())
-            dialogBinding.sliderTemperature.value = (existing.temperature * 100).coerceIn(0f, 100f)
             dialogBinding.switchDefault.isChecked = existing.isDefault
-            dialogBinding.tvTemperatureLabel.text = getString(R.string.label_temperature, existing.temperature)
 
+            // 先设置 API 类型（会调整滑块范围），再设置温度值
             updateUiForApiType(existing.apiType)
+            dialogBinding.sliderTemperature.value = (existing.temperature * 100).coerceIn(0f, dialogBinding.sliderTemperature.valueTo)
+            dialogBinding.tvTemperatureLabel.text = getString(R.string.label_temperature, existing.temperature)
 
             if (existing.apiType == API_TYPE_OPENAI) {
                 if (existing.models.isNotEmpty()) {

@@ -39,4 +39,14 @@ sealed class ChatItem {
         val thinkingStartTime: Long = 0L,
         val charCount: Int = 0
     ) : ChatItem()
+
+    data class ToolCallMessage(
+        override val id: String,
+        val toolName: String,
+        val arguments: String,
+        val result: String = "",
+        val status: ToolCallStatus = ToolCallStatus.PENDING
+    ) : ChatItem()
+
+    enum class ToolCallStatus { PENDING, EXECUTING, COMPLETED, ERROR }
 }

@@ -27,6 +27,7 @@ class ChatAdapter(
         const val TYPE_USER = 2
         const val TYPE_ASSISTANT = 3
         const val TYPE_STREAMING = 4
+        const val TYPE_TOOL_CALL = 5
 
         private const val KEY_SHOW_CHAR_COUNT = "ui_show_char_count"
         private const val KEY_SHOW_TOKEN_COUNT = "ui_show_token_count"
@@ -67,6 +68,7 @@ class ChatAdapter(
                 is ChatItem.UserMessage -> TYPE_USER
                 is ChatItem.AssistantMessage -> TYPE_ASSISTANT
                 is ChatItem.StreamingMessage -> TYPE_STREAMING
+                is ChatItem.ToolCallMessage -> TYPE_TOOL_CALL
             }
         }
 
@@ -282,6 +284,48 @@ class ChatAdapter(
                                 }
                             }
                         }
+                    }
+                }
+            }
+        })
+
+        addItemType(TYPE_TOOL_CALL, object : OnMultiItem<ChatItem, QuickViewHolder>() {
+            override fun onCreate(context: Context, parent: ViewGroup, viewType: Int): QuickViewHolder {
+                return QuickViewHolder(R.layout.item_chat_tool_call, parent)
+            }
+
+            override fun onBind(holder: QuickViewHolder, position: Int, item: ChatItem?) {
+                val toolCall = item as? ChatItem.ToolCallMessage ?: return
+
+                holder.setText(R.id.tv_tool_name, toolCall.toolName)
+                holder.setText(R.id.tv_arguments, toolCall.arguments)
+
+                val progressBar = holder.getView<ProgressBar>(R.id.progress_tool)
+                val tvStatus = holder.getView<TextView>(R.id.tv_status)
+                val tvResult = holder.getView<TextView>(R.id.tv_result)
+
+                when (toolCall.status) {
+                    ChatItem.ToolCallStatus.PENDING -> {
+                        progressBar.visibility = View.VISIBLE
+                        tvStatus.text = "等待中"
+                        tvResult.visibility = View.GONE
+                    }
+                    ChatItem.ToolCallStatus.EXECUTING -> {
+                        progressBar.visibility = View.VISIBLE
+                        tvStatus.text = "执行中..."
+                        tvResult.visibility = View.GONE
+                    }
+                    ChatItem.ToolCallStatus.COMPLETED -> {
+                        progressBar.visibility = View.GONE
+                        tvStatus.text = "完成"
+                        tvResult.text = toolCall.result
+                        tvResult.visibility = View.VISIBLE
+                    }
+                    ChatItem.ToolCallStatus.ERROR -> {
+                        progressBar.visibility = View.GONE
+                        tvStatus.text = "失败"
+                        tvResult.text = toolCall.result
+                        tvResult.visibility = View.VISIBLE
                     }
                 }
             }

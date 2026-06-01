@@ -10,6 +10,10 @@ import com.gao.chatbox.view.data.remote.OpenAiChatMessage
 import com.gao.chatbox.view.data.remote.OpenAiChatRequest
 import com.gao.chatbox.view.data.remote.SseParser
 import com.gao.chatbox.view.data.remote.StreamEvent
+import com.gao.chatbox.view.data.remote.ToolCall
+import com.gao.chatbox.view.data.remote.ToolCallFunction
+import com.gao.chatbox.view.data.remote.ToolDefinition
+import com.gao.chatbox.view.data.remote.ToolFunctionDefinition
 import com.gao.chatbox.view.util.ApiClient
 import kotlinx.coroutines.flow.Flow
 
@@ -49,7 +53,8 @@ class ChatRepository(context: Context) {
         systemPromptTag: String?,
         systemPrompt: String?,
         imageBase64: String? = null,
-        mediaType: String? = null
+        mediaType: String? = null,
+        enableWebSearch: Boolean = false
     ): StreamResult {
         val convId = if (conversationId == 0L) {
             dbManager.createConversation(
@@ -72,6 +77,8 @@ class ChatRepository(context: Context) {
             modelName = model,
             isStreaming = true
         )
+
+        val tools = if (enableWebSearch) buildWebSearchTools() else null
 
         val stream = when (config.apiType) {
             ModelConfig.API_TYPE_ANTHROPIC -> {
@@ -99,7 +106,8 @@ class ChatRepository(context: Context) {
                     messages = messages,
                     temperature = config.temperature,
                     stream = true,
-                    streamOptions = mapOf("include_usage" to true)
+                    streamOptions = mapOf("include_usage" to true),
+                    tools = tools
                 )
                 val responseBody = api.createChatCompletionStream(
                     authorization = "Bearer ${config.apiKey}",
@@ -113,6 +121,81 @@ class ChatRepository(context: Context) {
             conversationId = convId,
             assistantMessageId = assistantMsgId,
             stream = stream
+        )
+    }
+
+    suspend fun sendToolResult(
+        conversationId: Long,
+        history: List<OpenAiChatMessage>,
+        toolCalls: List<ToolCall>,
+        toolResults: Map<String, String>,
+        config: ModelConfig,
+        systemPrompt: String?,
+        assistantMessageId: Long
+    ): StreamResult {
+        val model = config.defaultModel.ifEmpty { config.models.firstOrNull() ?: "" }
+        val api = ApiClient.buildOpenAiApiStreaming(config.apiUrl)
+
+        val messages = history.toMutableList()
+
+        // Add assistant message with tool_calls
+        messages.add(OpenAiChatMessage(
+            role = "assistant",
+            content = null,
+            toolCalls = toolCalls
+        ))
+
+        // Add tool results
+        for (toolCall in toolCalls) {
+            val result = toolResults[toolCall.id] ?: "工具执行失败"
+            messages.add(OpenAiChatMessage(
+                role = "tool",
+                content = result,
+                toolCallId = toolCall.id
+            ))
+        }
+
+        val tools = buildWebSearchTools()
+
+        val request = OpenAiChatRequest(
+            model = model,
+            messages = messages,
+            temperature = config.temperature,
+            stream = true,
+            streamOptions = mapOf("include_usage" to true),
+            tools = tools
+        )
+
+        val responseBody = api.createChatCompletionStream(
+            authorization = "Bearer ${config.apiKey}",
+            request = request
+        )
+
+        return StreamResult(
+            conversationId = conversationId,
+            assistantMessageId = assistantMessageId,
+            stream = SseParser.parseOpenAiStream(responseBody)
+        )
+    }
+
+    private fun buildWebSearchTools(): List<ToolDefinition> {
+        return listOf(
+            ToolDefinition(
+                function = ToolFunctionDefinition(
+                    name = "search_web",
+                    description = "搜索互联网获取最新信息，当需要查询实时信息、新闻、天气、最新事件等时使用",
+                    parameters = mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "query" to mapOf(
+                                "type" to "string",
+                                "description" to "搜索关键词"
+                            )
+                        ),
+                        "required" to listOf("query")
+                    )
+                )
+            )
         )
     }
 

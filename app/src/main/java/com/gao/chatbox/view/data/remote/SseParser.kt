@@ -9,7 +9,13 @@ import okhttp3.ResponseBody
 
 sealed class StreamEvent {
     data class ContentDelta(val text: String) : StreamEvent()
-    data class StreamEnd(val usage: TokenUsage? = null) : StreamEvent()
+    data class ToolCallDelta(
+        val index: Int,
+        val id: String?,
+        val functionName: String?,
+        val arguments: String?
+    ) : StreamEvent()
+    data class StreamEnd(val usage: TokenUsage? = null, val finishReason: String? = null) : StreamEvent()
     data class Error(val message: String, val cause: Throwable? = null) : StreamEvent()
 }
 
@@ -35,12 +41,28 @@ object SseParser {
                     }
                     try {
                         val chunk = gson.fromJson(data, OpenAiStreamChunk::class.java)
-                        val content = chunk.choices.firstOrNull()?.delta?.content
+                        val choice = chunk.choices.firstOrNull()
+                        val content = choice?.delta?.content
                         if (!content.isNullOrEmpty()) {
                             emit(StreamEvent.ContentDelta(content))
                         }
+                        // Handle tool_calls in delta
+                        choice?.delta?.toolCalls?.forEach { toolCall ->
+                            emit(StreamEvent.ToolCallDelta(
+                                index = toolCall.index,
+                                id = toolCall.id,
+                                functionName = toolCall.function?.name,
+                                arguments = toolCall.function?.arguments
+                            ))
+                        }
                         chunk.usage?.let {
                             lastUsage = TokenUsage(it.promptTokens, it.completionTokens)
+                        }
+                        // Emit StreamEnd with finish_reason if it's tool_calls
+                        val finishReason = choice?.finishReason
+                        if (finishReason != null && finishReason != "stop") {
+                            emit(StreamEvent.StreamEnd(lastUsage, finishReason))
+                            break
                         }
                     } catch (_: Exception) {
                         // Skip malformed JSON lines

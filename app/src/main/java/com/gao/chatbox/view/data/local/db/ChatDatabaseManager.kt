@@ -16,6 +16,7 @@ class ChatDatabaseManager(context: Context) {
         const val ROLE_USER = "user"
         const val ROLE_ASSISTANT = "assistant"
         const val ROLE_SYSTEM = "system"
+        const val ROLE_TOOL = "tool"
 
         @Volatile
         private var INSTANCE: ChatDatabaseManager? = null
@@ -132,4 +133,40 @@ class ChatDatabaseManager(context: Context) {
 
     suspend fun getTotalTokens(conversationId: Long): Int =
         messageDao.totalTokensByConversation(conversationId)
+
+    // ==================== Tool Calls ====================
+
+    suspend fun addToolCallMessage(
+        conversationId: Long,
+        assistantContent: String,
+        toolCallsJson: String,
+        modelName: String? = null
+    ): Long {
+        val message = MessageEntity(
+            conversationId = conversationId,
+            role = ROLE_ASSISTANT,
+            content = assistantContent,
+            modelName = modelName,
+            toolCalls = toolCallsJson
+        )
+        val id = messageDao.insert(message)
+        conversationDao.updateTimestamp(conversationId)
+        return id
+    }
+
+    suspend fun addToolResultMessage(
+        conversationId: Long,
+        toolCallId: String,
+        content: String
+    ): Long {
+        val message = MessageEntity(
+            conversationId = conversationId,
+            role = ROLE_TOOL,
+            content = content,
+            toolCallId = toolCallId
+        )
+        val id = messageDao.insert(message)
+        conversationDao.updateTimestamp(conversationId)
+        return id
+    }
 }

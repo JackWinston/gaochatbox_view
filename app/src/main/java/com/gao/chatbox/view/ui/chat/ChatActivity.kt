@@ -19,9 +19,16 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
+import com.gao.chatbox.view.data.model.ModelConfig
+import com.gao.chatbox.view.data.remote.OpenAiChatMessage
 import com.gao.chatbox.view.data.remote.StreamEvent
+import com.gao.chatbox.view.data.remote.ToolCall
+import com.gao.chatbox.view.data.remote.ToolCallFunction
 import com.gao.chatbox.view.data.repository.ChatRepository
 import com.gao.chatbox.view.data.repository.MessageContext
+import com.gao.chatbox.view.data.repository.StreamResult
+import com.gao.chatbox.view.util.WebSearchTool
+import com.google.gson.Gson
 import com.gao.chatbox.view.databinding.ActivityChatBinding
 import com.gao.chatbox.view.util.ModelConfigManager
 import com.tencent.mmkv.MMKV
@@ -30,9 +37,11 @@ import io.noties.markwon.core.CorePlugin
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.linkify.LinkifyPlugin
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
@@ -90,6 +99,14 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     private var lastUIUpdateTime: Long = 0L
     private var thinkingStartTime: Long = 0L
     private var titleGenerated: Boolean = false
+    private val pendingToolCalls = mutableMapOf<Int, ToolCallBuilder>()
+    private var toolCallRoundCount = 0
+
+    private data class ToolCallBuilder(
+        var id: String = "",
+        var name: String = "",
+        val arguments: StringBuilder = StringBuilder()
+    )
 
     private val imagePickerLauncher =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -281,9 +298,11 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         isStreaming = true
         accumulatedContent = ""
         lastUIUpdateTime = 0L
+        toolCallRoundCount = 0
 
         streamingJob = lifecycleScope.launch {
             try {
+                pendingToolCalls.clear()
                 val result = chatRepository.sendMessage(
                     conversationId = currentConversationId,
                     userMessage = text,
@@ -292,31 +311,13 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                     systemPromptTag = systemPromptTag.ifBlank { null },
                     systemPrompt = systemPromptContent.ifBlank { null },
                     imageBase64 = imageBase64,
-                    mediaType = mediaType
+                    mediaType = mediaType,
+                    enableWebSearch = webSearchEnabled
                 )
                 currentConversationId = result.conversationId
                 currentAssistantMessageId = result.assistantMessageId
 
-                result.stream.collect { event ->
-                    when (event) {
-                        is StreamEvent.ContentDelta -> {
-                            accumulatedContent += event.text
-                            val now = System.currentTimeMillis()
-                            if (now - lastUIUpdateTime >= 50) {
-                                lastUIUpdateTime = now
-                                updateStreamingUI(accumulatedContent)
-                            }
-                        }
-                        is StreamEvent.StreamEnd -> {
-                            updateStreamingUI(accumulatedContent)
-                            finishStreaming(event.usage?.completionTokens)
-                        }
-                        is StreamEvent.Error -> {
-                            showErrorMessage(event.message)
-                            finishStreaming()
-                        }
-                    }
-                }
+                collectStream(result, config, systemPromptContent)
             } catch (e: Exception) {
                 showErrorMessage("Request failed: ${e.message}")
                 finishStreaming()
@@ -401,6 +402,209 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         scrollToBottom()
     }
 
+    private suspend fun collectStream(
+        result: StreamResult,
+        config: ModelConfig,
+        systemPrompt: String
+    ) {
+        result.stream.collect { event ->
+            when (event) {
+                is StreamEvent.ContentDelta -> {
+                    accumulatedContent += event.text
+                    val now = System.currentTimeMillis()
+                    if (now - lastUIUpdateTime >= 50) {
+                        lastUIUpdateTime = now
+                        updateStreamingUI(accumulatedContent)
+                    }
+                }
+                is StreamEvent.ToolCallDelta -> {
+                    val builder = pendingToolCalls.getOrPut(event.index) { ToolCallBuilder() }
+                    event.id?.let { builder.id = it }
+                    event.functionName?.let { builder.name = it }
+                    event.arguments?.let { builder.arguments.append(it) }
+                }
+                is StreamEvent.StreamEnd -> {
+                    if (event.finishReason == "tool_calls" && pendingToolCalls.isNotEmpty() && toolCallRoundCount < 2) {
+                        toolCallRoundCount++
+                        handleToolCalls(config, systemPrompt)
+                    } else {
+                        updateStreamingUI(accumulatedContent)
+                        finishStreaming(event.usage?.completionTokens)
+                    }
+                }
+                is StreamEvent.Error -> {
+                    showErrorMessage(event.message)
+                    finishStreaming()
+                }
+            }
+        }
+    }
+
+    private suspend fun handleToolCalls(
+        config: ModelConfig,
+        systemPrompt: String
+    ) {
+        // Replace streaming message with assistant text content if any
+        val items = chatAdapter.items.toMutableList()
+        val streamIdx = items.indexOfFirst { it is ChatItem.StreamingMessage }
+        if (streamIdx >= 0) {
+            items.removeAt(streamIdx)
+        }
+        if (accumulatedContent.isNotBlank()) {
+            items.add(
+                ChatItem.AssistantMessage(
+                    id = "msg_${System.currentTimeMillis()}",
+                    content = accumulatedContent,
+                    modelName = selectedModelName.ifEmpty { null }
+                )
+            )
+        }
+
+        // Build tool calls and add ToolCallMessage items
+        val toolCalls = mutableListOf<ToolCall>()
+        val toolCallMessages = mutableListOf<ChatItem.ToolCallMessage>()
+        for ((index, builder) in pendingToolCalls.toSortedMap()) {
+            // Ensure tool call has a valid id
+            val toolCallId = builder.id.ifEmpty { "call_${System.currentTimeMillis()}_$index" }
+            val toolCall = ToolCall(
+                id = toolCallId,
+                function = ToolCallFunction(
+                    name = builder.name,
+                    arguments = builder.arguments.toString()
+                )
+            )
+            toolCalls.add(toolCall)
+            toolCallMessages.add(
+                ChatItem.ToolCallMessage(
+                    id = "tool_$toolCallId",
+                    toolName = builder.name,
+                    arguments = builder.arguments.toString(),
+                    status = ChatItem.ToolCallStatus.EXECUTING
+                )
+            )
+        }
+        items.addAll(toolCallMessages)
+        chatAdapter.submitList(items)
+        scrollToBottom()
+
+        // Save assistant message with tool_calls to database
+        val toolCallsJson = Gson().toJson(toolCalls.map {
+            mapOf("id" to it.id, "type" to it.type, "function" to mapOf("name" to it.function.name, "arguments" to it.function.arguments))
+        })
+        dbManager.addToolCallMessage(
+            conversationId = currentConversationId,
+            assistantContent = "",  // Don't save content here, it will be in the final response
+            toolCallsJson = toolCallsJson,
+            modelName = selectedModelName.ifEmpty { null }
+        )
+
+        // Execute tools and save results BEFORE creating final assistant message
+        val toolResults = mutableMapOf<String, String>()
+        for (toolCall in toolCalls) {
+            val result = withContext(Dispatchers.IO) { executeTool(toolCall) }
+            toolResults[toolCall.id] = result
+
+            // Save tool result to database
+            dbManager.addToolResultMessage(
+                conversationId = currentConversationId,
+                toolCallId = toolCall.id,
+                content = result
+            )
+
+            // Update ToolCallMessage status
+            val currentItems = chatAdapter.items.toMutableList()
+            val idx = currentItems.indexOfFirst {
+                it is ChatItem.ToolCallMessage && it.id == "tool_${toolCall.id}"
+            }
+            if (idx >= 0) {
+                currentItems[idx] = ChatItem.ToolCallMessage(
+                    id = "tool_${toolCall.id}",
+                    toolName = toolCall.function.name,
+                    arguments = toolCall.function.arguments,
+                    result = result,
+                    status = ChatItem.ToolCallStatus.COMPLETED
+                )
+                chatAdapter.submitList(currentItems)
+            }
+        }
+
+        // Create a NEW assistant message for the final response (after tool results)
+        currentAssistantMessageId = dbManager.addAssistantMessage(
+            conversationId = currentConversationId,
+            content = "",
+            modelName = selectedModelName.ifEmpty { null },
+            isStreaming = true
+        )
+
+        // Build message history for second round
+        val messageHistory = buildOpenAiMessageHistory()
+        pendingToolCalls.clear()
+        accumulatedContent = ""
+        lastUIUpdateTime = 0L
+
+        // Add streaming placeholder for second round
+        val now = System.currentTimeMillis()
+        thinkingStartTime = now
+        val streamItems = chatAdapter.items.toMutableList()
+        streamItems.add(ChatItem.StreamingMessage(id = "streaming_$now", isThinking = true, thinkingStartTime = thinkingStartTime))
+        chatAdapter.submitList(streamItems)
+        scrollToBottom()
+
+        // Send tool results and continue streaming
+        try {
+            val secondResult = chatRepository.sendToolResult(
+                conversationId = currentConversationId,
+                history = messageHistory,
+                toolCalls = toolCalls,
+                toolResults = toolResults,
+                config = config,
+                systemPrompt = systemPrompt.ifBlank { null },
+                assistantMessageId = currentAssistantMessageId
+            )
+
+            collectStream(secondResult, config, systemPrompt)
+        } catch (e: Exception) {
+            showErrorMessage("Tool result request failed: ${e.message}")
+            finishStreaming()
+        }
+    }
+
+    private fun executeTool(toolCall: ToolCall): String {
+        return when (toolCall.function.name) {
+            "search_web" -> {
+                try {
+                    @Suppress("UNCHECKED_CAST")
+                    val args = Gson().fromJson(toolCall.function.arguments, Map::class.java) as? Map<String, Any>
+                    val query = args?.get("query")?.toString() ?: ""
+                    if (query.isBlank()) "搜索关键词为空" else WebSearchTool.execute(query)
+                } catch (e: Exception) {
+                    "搜索执行失败: ${e.message ?: "未知错误"}"
+                }
+            }
+            else -> "未知工具: ${toolCall.function.name}"
+        }
+    }
+
+    private fun buildOpenAiMessageHistory(): List<OpenAiChatMessage> {
+        val messages = mutableListOf<OpenAiChatMessage>()
+        if (systemPromptContent.isNotBlank()) {
+            messages.add(OpenAiChatMessage(role = "system", content = systemPromptContent))
+        }
+        val items = chatAdapter.items
+        for (item in items) {
+            when (item) {
+                is ChatItem.UserMessage -> {
+                    messages.add(OpenAiChatMessage(role = "user", content = item.content))
+                }
+                is ChatItem.AssistantMessage -> {
+                    messages.add(OpenAiChatMessage(role = "assistant", content = item.content))
+                }
+                else -> {}
+            }
+        }
+        return messages
+    }
+
     // endregion
 
     // region Scroll
@@ -459,6 +663,11 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                 )
             }
 
+            // Cache tool results by toolCallId for matching
+            val toolResultMap = messages
+                .filter { it.role == ChatDatabaseManager.ROLE_TOOL && it.toolCallId != null }
+                .associateBy { it.toolCallId!! }
+
             for (msg in messages) {
                 val timestamp = ChatItemBuilder.buildTimestampIfNeeded(items, msg.createdAt)
                 if (timestamp != null) {
@@ -475,21 +684,60 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                         )
                     }
                     ChatDatabaseManager.ROLE_ASSISTANT -> {
-                        items.add(
-                            ChatItem.AssistantMessage(
-                                id = "msg_${msg.id}",
-                                content = msg.content,
-                                modelName = msg.modelName,
-                                tokenCount = msg.tokenCount,
-                                createdAt = msg.createdAt
+                        if (!msg.toolCalls.isNullOrBlank()) {
+                            // This is a tool_call container message - only show tool calls, skip assistant message
+                            val toolCalls = parseToolCallsJson(msg.toolCalls)
+                            for (tc in toolCalls) {
+                                val toolResult = toolResultMap[tc["id"]]
+                                items.add(
+                                    ChatItem.ToolCallMessage(
+                                        id = "tool_${tc["id"]}",
+                                        toolName = tc["function.name"] ?: "",
+                                        arguments = tc["function.arguments"] ?: "",
+                                        result = toolResult?.content ?: "",
+                                        status = if (toolResult != null) ChatItem.ToolCallStatus.COMPLETED else ChatItem.ToolCallStatus.PENDING
+                                    )
+                                )
+                            }
+                        } else if (msg.content.isNotBlank()) {
+                            // Normal assistant message
+                            items.add(
+                                ChatItem.AssistantMessage(
+                                    id = "msg_${msg.id}",
+                                    content = msg.content,
+                                    modelName = msg.modelName,
+                                    tokenCount = msg.tokenCount,
+                                    createdAt = msg.createdAt
+                                )
                             )
-                        )
+                        }
+                    }
+                    ChatDatabaseManager.ROLE_TOOL -> {
+                        // Tool results are shown as part of ToolCallMessage above
                     }
                 }
             }
 
             chatAdapter.submitList(items)
             binding.rvMessages.scrollToPosition(chatAdapter.itemCount - 1)
+        }
+    }
+
+    private fun parseToolCallsJson(json: String): List<Map<String, String>> {
+        return try {
+            @Suppress("UNCHECKED_CAST")
+            val list = Gson().fromJson(json, List::class.java) as? List<Map<String, Any>>
+            list?.map { item ->
+                val function = item["function"] as? Map<String, Any> ?: emptyMap()
+                mapOf(
+                    "id" to (item["id"]?.toString() ?: ""),
+                    "type" to (item["type"]?.toString() ?: "function"),
+                    "function.name" to (function["name"]?.toString() ?: ""),
+                    "function.arguments" to (function["arguments"]?.toString() ?: "")
+                )
+            } ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 
