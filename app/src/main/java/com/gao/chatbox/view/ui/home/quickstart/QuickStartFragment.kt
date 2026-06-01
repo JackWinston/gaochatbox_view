@@ -4,45 +4,50 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 import androidx.fragment.app.Fragment
-import androidx.recyclerview.widget.RecyclerView
 import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.model.SystemPrompt
+import com.gao.chatbox.view.databinding.DialogSystemPromptBinding
+import com.gao.chatbox.view.databinding.FragmentQuickStartBinding
 import com.gao.chatbox.view.ui.chat.ChatActivity
 import com.gao.chatbox.view.util.SystemPromptManager
 import com.google.android.flexbox.FlexDirection
 import com.google.android.flexbox.FlexboxLayoutManager
 import com.google.android.flexbox.JustifyContent
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.textfield.TextInputEditText
 
 class QuickStartFragment : Fragment() {
 
-    private lateinit var rvPrompts: RecyclerView
+    private var _binding: FragmentQuickStartBinding? = null
+    private val binding get() = _binding!!
     private var adapter: SystemPromptAdapter? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.fragment_quick_start, container, false)
+    ): View {
+        _binding = FragmentQuickStartBinding.inflate(inflater, container, false)
+        return binding.root
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         SystemPromptManager.init()
-        rvPrompts = view.findViewById(R.id.rv_prompts)
 
         val layoutManager = FlexboxLayoutManager(requireContext()).apply {
             flexDirection = FlexDirection.ROW
             justifyContent = JustifyContent.CENTER
         }
-        rvPrompts.layoutManager = layoutManager
+        binding.rvPrompts.layoutManager = layoutManager
 
         refreshList()
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 
     private fun refreshList() {
@@ -62,21 +67,18 @@ class QuickStartFragment : Fragment() {
                 showDeleteConfirm(prompt)
             }
         )
-        rvPrompts.adapter = adapter
+        binding.rvPrompts.adapter = adapter
     }
 
     private fun showAddDialog() {
-        val dialogView = LayoutInflater.from(requireContext())
-            .inflate(R.layout.dialog_system_prompt, null)
-        val etTag = dialogView.findViewById<TextInputEditText>(R.id.et_tag)
-        val etContent = dialogView.findViewById<TextInputEditText>(R.id.et_content)
+        val dialogBinding = DialogSystemPromptBinding.inflate(layoutInflater)
 
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(R.string.dialog_title_add)
-            .setView(dialogView)
+            .setView(dialogBinding.root)
             .setPositiveButton(R.string.dialog_confirm) { _, _ ->
-                val tag = etTag.text?.toString()?.trim() ?: ""
-                val content = etContent.text?.toString()?.trim() ?: ""
+                val tag = dialogBinding.etTag.text?.toString()?.trim() ?: ""
+                val content = dialogBinding.etContent.text?.toString()?.trim() ?: ""
                 if (tag.isNotEmpty() && content.isNotEmpty()) {
                     SystemPromptManager.add(
                         SystemPrompt(content = content, tag = tag)
@@ -89,20 +91,17 @@ class QuickStartFragment : Fragment() {
     }
 
     private fun showEditDialog(prompt: SystemPrompt) {
-        val dialogView = LayoutInflater.from(requireContext())
-            .inflate(R.layout.dialog_system_prompt, null)
-        val etTag = dialogView.findViewById<TextInputEditText>(R.id.et_tag)
-        val etContent = dialogView.findViewById<TextInputEditText>(R.id.et_content)
+        val dialogBinding = DialogSystemPromptBinding.inflate(layoutInflater)
 
-        etTag.setText(prompt.tag)
-        etContent.setText(prompt.content)
+        dialogBinding.etTag.setText(prompt.tag)
+        dialogBinding.etContent.setText(prompt.content)
 
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(R.string.dialog_title_edit)
-            .setView(dialogView)
+            .setView(dialogBinding.root)
             .setPositiveButton(R.string.dialog_confirm) { _, _ ->
-                val tag = etTag.text?.toString()?.trim() ?: ""
-                val content = etContent.text?.toString()?.trim() ?: ""
+                val tag = dialogBinding.etTag.text?.toString()?.trim() ?: ""
+                val content = dialogBinding.etContent.text?.toString()?.trim() ?: ""
                 if (tag.isNotEmpty() && content.isNotEmpty()) {
                     SystemPromptManager.update(
                         prompt.copy(tag = tag, content = content)

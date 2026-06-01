@@ -5,9 +5,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
-import android.widget.TextView
 import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.model.SystemPrompt
+import com.gao.chatbox.view.databinding.ItemAddPromptBinding
+import com.gao.chatbox.view.databinding.ItemSystemPromptBinding
 
 class SystemPromptAdapter(
     private val prompts: List<SystemPrompt>,
@@ -22,28 +23,25 @@ class SystemPromptAdapter(
         private const val TYPE_ADD = 1
     }
 
-    inner class PromptViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val tvPrompt: TextView = itemView.findViewById(R.id.tv_prompt)
-    }
+    inner class PromptViewHolder(val binding: ItemSystemPromptBinding) :
+        RecyclerView.ViewHolder(binding.root)
 
-    inner class AddViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView)
+    class AddViewHolder(val binding: ItemAddPromptBinding) :
+        RecyclerView.ViewHolder(binding.root)
 
     override fun getItemViewType(position: Int): Int {
         return if (position < prompts.size) TYPE_PROMPT else TYPE_ADD
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        val inflater = LayoutInflater.from(parent.context)
         return when (viewType) {
-            TYPE_PROMPT -> {
-                val view = LayoutInflater.from(parent.context)
-                    .inflate(R.layout.item_system_prompt, parent, false)
-                PromptViewHolder(view)
-            }
-            else -> {
-                val view = LayoutInflater.from(parent.context)
-                    .inflate(R.layout.item_add_prompt, parent, false)
-                AddViewHolder(view)
-            }
+            TYPE_PROMPT -> PromptViewHolder(
+                ItemSystemPromptBinding.inflate(inflater, parent, false)
+            )
+            else -> AddViewHolder(
+                ItemAddPromptBinding.inflate(inflater, parent, false)
+            )
         }
     }
 
@@ -51,7 +49,7 @@ class SystemPromptAdapter(
         when (holder) {
             is PromptViewHolder -> {
                 val prompt = prompts[position]
-                holder.tvPrompt.text = "${prompt.tag}: ${prompt.content}"
+                holder.binding.tvPrompt.text = "${prompt.tag}: ${prompt.content}"
                 holder.itemView.setOnClickListener { onPromptClick(prompt) }
                 if (!prompt.isDefault) {
                     holder.itemView.setOnLongClickListener { view ->

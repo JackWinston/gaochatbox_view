@@ -4,27 +4,20 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.LinearLayout
 import android.widget.PopupMenu
-import android.widget.ProgressBar
-import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.model.ModelConfig
 import com.gao.chatbox.view.data.model.ModelConfig.Companion.API_TYPE_ANTHROPIC
 import com.gao.chatbox.view.data.model.ModelConfig.Companion.API_TYPE_OPENAI
+import com.gao.chatbox.view.databinding.DialogModelConfigBinding
+import com.gao.chatbox.view.databinding.FragmentSettingsBinding
 import com.gao.chatbox.view.util.ApiClient
 import com.gao.chatbox.view.util.ModelConfigManager
-import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.materialswitch.MaterialSwitch
-import com.google.android.material.slider.Slider
-import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
 import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -32,7 +25,8 @@ import kotlinx.coroutines.withContext
 
 class SettingsFragment : Fragment() {
 
-    private lateinit var rvSettings: RecyclerView
+    private var _binding: FragmentSettingsBinding? = null
+    private val binding get() = _binding!!
     private var adapter: SettingsAdapter? = null
 
     private val mmkv: MMKV by lazy { MMKV.defaultMMKV() }
@@ -49,18 +43,23 @@ class SettingsFragment : Fragment() {
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.fragment_settings, container, false)
+    ): View {
+        _binding = FragmentSettingsBinding.inflate(inflater, container, false)
+        return binding.root
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         ModelConfigManager.init()
-        rvSettings = view.findViewById(R.id.rv_settings)
-        rvSettings.layoutManager = LinearLayoutManager(requireContext())
+        binding.rvSettings.layoutManager = LinearLayoutManager(requireContext())
 
         setupAdapter()
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 
     private fun setupAdapter() {
@@ -92,7 +91,7 @@ class SettingsFragment : Fragment() {
             webSearchEnabled = mmkv.decodeBool(KEY_WEB_SEARCH, false)
         }
 
-        rvSettings.adapter = adapter
+        binding.rvSettings.adapter = adapter
         refreshModels()
     }
 
@@ -133,23 +132,7 @@ class SettingsFragment : Fragment() {
     }
 
     private fun showModelDialog(existing: ModelConfig?) {
-        val dialogView = LayoutInflater.from(requireContext())
-            .inflate(R.layout.dialog_model_config, null)
-
-        val etTag = dialogView.findViewById<TextInputEditText>(R.id.et_name)
-        val etApiType = dialogView.findViewById<TextInputEditText>(R.id.et_api_type)
-        val etApiUrl = dialogView.findViewById<TextInputEditText>(R.id.et_api_url)
-        val etApiKey = dialogView.findViewById<TextInputEditText>(R.id.et_api_key)
-        val layoutOpenaiModel = dialogView.findViewById<LinearLayout>(R.id.layout_openai_model)
-        val etDefaultModel = dialogView.findViewById<TextInputEditText>(R.id.et_default_model)
-        val btnFetchModels = dialogView.findViewById<MaterialButton>(R.id.btn_fetch_models)
-        val progressFetch = dialogView.findViewById<ProgressBar>(R.id.progress_fetch)
-        val tilAnthropicModel = dialogView.findViewById<TextInputLayout>(R.id.til_anthropic_model)
-        val etAnthropicModel = dialogView.findViewById<TextInputEditText>(R.id.et_anthropic_model)
-        val etContextLimit = dialogView.findViewById<TextInputEditText>(R.id.et_context_limit)
-        val tvTemperatureLabel = dialogView.findViewById<TextView>(R.id.tv_temperature_label)
-        val sliderTemperature = dialogView.findViewById<Slider>(R.id.slider_temperature)
-        val switchDefault = dialogView.findViewById<MaterialSwitch>(R.id.switch_default)
+        val dialogBinding = DialogModelConfigBinding.inflate(layoutInflater)
 
         // 状态变量
         var fetchedModels = mutableListOf<String>()
@@ -164,36 +147,36 @@ class SettingsFragment : Fragment() {
 
         fun updateUiForApiType(apiType: String) {
             selectedApiType = apiType
-            etApiType.setText(if (apiType == API_TYPE_ANTHROPIC) apiTypeLabels[1] else apiTypeLabels[0])
+            dialogBinding.etApiType.setText(if (apiType == API_TYPE_ANTHROPIC) apiTypeLabels[1] else apiTypeLabels[0])
             if (apiType == API_TYPE_OPENAI) {
-                layoutOpenaiModel.visibility = View.VISIBLE
-                btnFetchModels.visibility = View.VISIBLE
-                progressFetch.visibility = View.GONE
-                tilAnthropicModel.visibility = View.GONE
+                dialogBinding.layoutOpenaiModel.visibility = View.VISIBLE
+                dialogBinding.btnFetchModels.visibility = View.VISIBLE
+                dialogBinding.progressFetch.visibility = View.GONE
+                dialogBinding.tilAnthropicModel.visibility = View.GONE
             } else {
-                layoutOpenaiModel.visibility = View.GONE
-                btnFetchModels.visibility = View.GONE
-                progressFetch.visibility = View.GONE
-                tilAnthropicModel.visibility = View.VISIBLE
+                dialogBinding.layoutOpenaiModel.visibility = View.GONE
+                dialogBinding.btnFetchModels.visibility = View.GONE
+                dialogBinding.progressFetch.visibility = View.GONE
+                dialogBinding.tilAnthropicModel.visibility = View.VISIBLE
             }
         }
 
         // API 类型选择（弹窗）
-        etApiType.setOnClickListener {
+        dialogBinding.etApiType.setOnClickListener {
             val currentIndex = apiTypeValues.indexOf(selectedApiType).coerceAtLeast(0)
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle(R.string.label_api_type)
                 .setSingleChoiceItems(apiTypeLabels.toTypedArray(), currentIndex) { dialog, which ->
                     val newType = apiTypeValues[which]
                     updateUiForApiType(newType)
-                    if (etApiUrl.text.isNullOrEmpty()) {
+                    if (dialogBinding.etApiUrl.text.isNullOrEmpty()) {
                         when (newType) {
-                            API_TYPE_OPENAI -> etApiUrl.setHint("https://api.openai.com/v1")
-                            API_TYPE_ANTHROPIC -> etApiUrl.setHint("https://api.anthropic.com/v1")
+                            API_TYPE_OPENAI -> dialogBinding.etApiUrl.setHint("https://api.openai.com/v1")
+                            API_TYPE_ANTHROPIC -> dialogBinding.etApiUrl.setHint("https://api.anthropic.com/v1")
                         }
                     }
-                    if (newType == API_TYPE_ANTHROPIC && etContextLimit.text.isNullOrEmpty()) {
-                        etContextLimit.setText("200000")
+                    if (newType == API_TYPE_ANTHROPIC && dialogBinding.etContextLimit.text.isNullOrEmpty()) {
+                        dialogBinding.etContextLimit.setText("200000")
                     }
                     dialog.dismiss()
                 }
@@ -201,7 +184,7 @@ class SettingsFragment : Fragment() {
         }
 
         // 默认模型选择（弹窗，仅 OpenAI）
-        etDefaultModel.setOnClickListener {
+        dialogBinding.etDefaultModel.setOnClickListener {
             if (fetchedModels.isEmpty()) {
                 Toast.makeText(requireContext(), R.string.msg_fetch_first, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
@@ -211,7 +194,7 @@ class SettingsFragment : Fragment() {
                 .setTitle(R.string.label_default_model)
                 .setSingleChoiceItems(fetchedModels.toTypedArray(), currentIndex) { dialog, which ->
                     selectedDefaultModel = fetchedModels[which]
-                    etDefaultModel.setText(selectedDefaultModel)
+                    dialogBinding.etDefaultModel.setText(selectedDefaultModel)
                     dialog.dismiss()
                 }
                 .show()
@@ -219,13 +202,13 @@ class SettingsFragment : Fragment() {
 
         // 预填充已有数据
         if (existing != null) {
-            etTag.setText(existing.tag)
-            etApiUrl.setText(existing.apiUrl)
-            etApiKey.setText(existing.apiKey)
-            etContextLimit.setText(existing.contextLimit.toString())
-            sliderTemperature.value = (existing.temperature * 100).coerceIn(0f, 100f)
-            switchDefault.isChecked = existing.isDefault
-            tvTemperatureLabel.text = getString(R.string.label_temperature, existing.temperature)
+            dialogBinding.etName.setText(existing.tag)
+            dialogBinding.etApiUrl.setText(existing.apiUrl)
+            dialogBinding.etApiKey.setText(existing.apiKey)
+            dialogBinding.etContextLimit.setText(existing.contextLimit.toString())
+            dialogBinding.sliderTemperature.value = (existing.temperature * 100).coerceIn(0f, 100f)
+            dialogBinding.switchDefault.isChecked = existing.isDefault
+            dialogBinding.tvTemperatureLabel.text = getString(R.string.label_temperature, existing.temperature)
 
             updateUiForApiType(existing.apiType)
 
@@ -234,34 +217,34 @@ class SettingsFragment : Fragment() {
                     fetchedModels.addAll(existing.models)
                 }
                 if (existing.defaultModel.isNotEmpty()) {
-                    etDefaultModel.setText(existing.defaultModel)
+                    dialogBinding.etDefaultModel.setText(existing.defaultModel)
                 }
             } else {
-                etAnthropicModel.setText(existing.defaultModel)
+                dialogBinding.etAnthropicModel.setText(existing.defaultModel)
             }
         } else {
-            sliderTemperature.value = 70f
-            tvTemperatureLabel.text = getString(R.string.label_temperature, 0.7f)
+            dialogBinding.sliderTemperature.value = 70f
+            dialogBinding.tvTemperatureLabel.text = getString(R.string.label_temperature, 0.7f)
             updateUiForApiType(API_TYPE_OPENAI)
         }
 
         // 温度滑块
-        sliderTemperature.addOnChangeListener { _, value, _ ->
+        dialogBinding.sliderTemperature.addOnChangeListener { _, value, _ ->
             val temp = value / 100f
-            tvTemperatureLabel.text = getString(R.string.label_temperature, temp)
+            dialogBinding.tvTemperatureLabel.text = getString(R.string.label_temperature, temp)
         }
 
         // 获取模型按钮（仅 OpenAI）
-        btnFetchModels.setOnClickListener {
-            val apiUrl = etApiUrl.text?.toString()?.trim() ?: ""
-            val apiKey = etApiKey.text?.toString()?.trim() ?: ""
+        dialogBinding.btnFetchModels.setOnClickListener {
+            val apiUrl = dialogBinding.etApiUrl.text?.toString()?.trim() ?: ""
+            val apiKey = dialogBinding.etApiKey.text?.toString()?.trim() ?: ""
             if (apiUrl.isEmpty() || apiKey.isEmpty()) {
                 Toast.makeText(requireContext(), R.string.msg_enter_url_and_key, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            btnFetchModels.isEnabled = false
-            progressFetch.visibility = View.VISIBLE
+            dialogBinding.btnFetchModels.isEnabled = false
+            dialogBinding.progressFetch.visibility = View.VISIBLE
 
             viewLifecycleOwner.lifecycleScope.launch {
                 try {
@@ -274,19 +257,19 @@ class SettingsFragment : Fragment() {
 
                     if (modelIds.isNotEmpty()) {
                         selectedDefaultModel = modelIds[0]
-                        etDefaultModel.setText(selectedDefaultModel)
+                        dialogBinding.etDefaultModel.setText(selectedDefaultModel)
                     }
 
-                    if (etContextLimit.text.isNullOrEmpty()) {
-                        etContextLimit.setText("4096")
+                    if (dialogBinding.etContextLimit.text.isNullOrEmpty()) {
+                        dialogBinding.etContextLimit.setText("4096")
                     }
 
                     Toast.makeText(requireContext(), getString(R.string.msg_fetch_success, modelIds.size), Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
                     Toast.makeText(requireContext(), getString(R.string.msg_fetch_failed, e.message ?: "Unknown"), Toast.LENGTH_LONG).show()
                 } finally {
-                    btnFetchModels.isEnabled = true
-                    progressFetch.visibility = View.GONE
+                    dialogBinding.btnFetchModels.isEnabled = true
+                    dialogBinding.progressFetch.visibility = View.GONE
                 }
             }
         }
@@ -295,16 +278,16 @@ class SettingsFragment : Fragment() {
 
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(titleRes)
-            .setView(dialogView)
+            .setView(dialogBinding.root)
             .setPositiveButton(R.string.dialog_confirm) { _, _ ->
-                val tag = etTag.text?.toString()?.trim() ?: ""
+                val tag = dialogBinding.etName.text?.toString()?.trim() ?: ""
                 if (tag.isEmpty()) return@setPositiveButton
 
-                val apiUrl = etApiUrl.text?.toString()?.trim() ?: ""
-                val apiKey = etApiKey.text?.toString()?.trim() ?: ""
-                val contextLimit = etContextLimit.text?.toString()?.toIntOrNull() ?: 4096
-                val temperature = sliderTemperature.value / 100f
-                val isDefault = switchDefault.isChecked
+                val apiUrl = dialogBinding.etApiUrl.text?.toString()?.trim() ?: ""
+                val apiKey = dialogBinding.etApiKey.text?.toString()?.trim() ?: ""
+                val contextLimit = dialogBinding.etContextLimit.text?.toString()?.toIntOrNull() ?: 4096
+                val temperature = dialogBinding.sliderTemperature.value / 100f
+                val isDefault = dialogBinding.switchDefault.isChecked
 
                 val defaultModel: String
                 val models: List<String>
@@ -313,7 +296,7 @@ class SettingsFragment : Fragment() {
                     defaultModel = selectedDefaultModel
                     models = fetchedModels.toList()
                 } else {
-                    defaultModel = etAnthropicModel.text?.toString()?.trim() ?: ""
+                    defaultModel = dialogBinding.etAnthropicModel.text?.toString()?.trim() ?: ""
                     models = if (defaultModel.isNotEmpty()) listOf(defaultModel) else emptyList()
                 }
 

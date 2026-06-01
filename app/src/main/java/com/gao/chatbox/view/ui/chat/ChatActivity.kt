@@ -6,13 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.widget.EditText
+import android.view.View
 import android.widget.ExpandableListAdapter
 import android.widget.ExpandableListView
-import android.widget.ImageButton
-import android.widget.LinearLayout
 import android.widget.SimpleExpandableListAdapter
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -25,8 +22,8 @@ import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.remote.StreamEvent
 import com.gao.chatbox.view.data.repository.ChatRepository
 import com.gao.chatbox.view.data.repository.MessageContext
+import com.gao.chatbox.view.databinding.ActivityChatBinding
 import com.gao.chatbox.view.util.ModelConfigManager
-import com.google.android.material.appbar.MaterialToolbar
 import com.tencent.mmkv.MMKV
 import io.noties.markwon.Markwon
 import io.noties.markwon.core.CorePlugin
@@ -52,10 +49,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         }
     }
 
-    private lateinit var rvMessages: RecyclerView
-    private lateinit var etInput: EditText
-    private lateinit var btnWebSearch: ImageButton
-    private lateinit var tvSelectedModel: TextView
+    private lateinit var binding: ActivityChatBinding
     private lateinit var chatAdapter: ChatAdapter
 
     private val mmkv: MMKV by lazy { MMKV.defaultMMKV() }
@@ -84,20 +78,10 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_chat)
+        binding = ActivityChatBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
         ModelConfigManager.init()
-
-        val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
-        rvMessages = findViewById(R.id.rv_messages)
-        etInput = findViewById(R.id.et_input)
-        val btnNewChat = findViewById<ImageButton>(R.id.btn_new_chat)
-        val btnSelectImage = findViewById<ImageButton>(R.id.btn_select_image)
-        val btnSelectFile = findViewById<ImageButton>(R.id.btn_select_file)
-        val btnSelectModel = findViewById<LinearLayout>(R.id.btn_select_model)
-        tvSelectedModel = findViewById(R.id.tv_selected_model)
-        btnWebSearch = findViewById(R.id.btn_web_search)
-        val btnSend = findViewById<ImageButton>(R.id.btn_send)
 
         systemPromptTag = intent.getStringExtra(EXTRA_SYSTEM_PROMPT_TAG) ?: ""
         systemPromptContent = intent.getStringExtra(EXTRA_SYSTEM_PROMPT_CONTENT) ?: ""
@@ -108,12 +92,12 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         // Init default model
         val defaultConfig = ModelConfigManager.getDefault()
         selectedModelName = defaultConfig?.defaultModel?.ifEmpty { defaultConfig.models.firstOrNull() } ?: ""
-        tvSelectedModel.text = selectedModelName.ifEmpty { getString(R.string.btn_select_model) }
+        binding.tvSelectedModel.text = selectedModelName.ifEmpty { getString(R.string.btn_select_model) }
 
         // Toolbar
-        toolbar.title = systemPromptTag
-        toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
-        toolbar.setOnMenuItemClickListener { menuItem ->
+        binding.toolbar.title = systemPromptTag
+        binding.toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
+        binding.toolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
                 R.id.action_delete -> {
                     showDeleteConfirmDialog()
@@ -133,7 +117,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
         // RecyclerView
         chatAdapter = ChatAdapter(markwon, this)
-        rvMessages.apply {
+        binding.rvMessages.apply {
             layoutManager = LinearLayoutManager(this@ChatActivity)
             adapter = chatAdapter
         }
@@ -152,12 +136,12 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         chatAdapter.submitList(initialItems)
 
         // Bottom toolbar actions
-        btnNewChat.setOnClickListener { onNewChat() }
-        btnSelectImage.setOnClickListener { imagePickerLauncher.launch("image/*") }
-        btnSelectFile.setOnClickListener { filePickerLauncher.launch("*/*") }
-        btnSelectModel.setOnClickListener { showModelSelectorDialog() }
-        btnWebSearch.setOnClickListener { toggleWebSearch() }
-        btnSend.setOnClickListener { onSend() }
+        binding.btnNewChat.setOnClickListener { onNewChat() }
+        binding.btnSelectImage.setOnClickListener { imagePickerLauncher.launch("image/*") }
+        binding.btnSelectFile.setOnClickListener { filePickerLauncher.launch("*/*") }
+        binding.btnSelectModel.setOnClickListener { showModelSelectorDialog() }
+        binding.btnWebSearch.setOnClickListener { toggleWebSearch() }
+        binding.btnSend.setOnClickListener { onSend() }
 
         updateWebSearchIcon()
     }
@@ -182,10 +166,10 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     // region Send
 
     private fun onSend() {
-        val text = etInput.text?.toString()?.trim() ?: return
+        val text = binding.etInput.text?.toString()?.trim() ?: return
         if (text.isEmpty() || isStreaming) return
 
-        etInput.text?.clear()
+        binding.etInput.text?.clear()
 
         val config = ModelConfigManager.getDefault()
         if (config == null) {
@@ -274,13 +258,13 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     }
 
     private fun updateStreamingUI(content: String) {
-        val holder = chatAdapter.findStreamingViewHolder(rvMessages)
+        val holder = chatAdapter.findStreamingViewHolder(binding.rvMessages)
         if (holder != null) {
             holder.updateStreamingContent(content)
             if (holder.isExpanded) {
                 val pos = holder.adapterPosition
                 if (pos != RecyclerView.NO_POSITION) {
-                    rvMessages.smoothScrollToPosition(pos)
+                    binding.rvMessages.smoothScrollToPosition(pos)
                 }
             }
         }
@@ -333,12 +317,12 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     private fun scrollToBottom() {
         val itemCount = chatAdapter.itemCount
         if (itemCount > 0) {
-            rvMessages.smoothScrollToPosition(itemCount - 1)
+            binding.rvMessages.smoothScrollToPosition(itemCount - 1)
         }
     }
 
     private fun shouldAutoScroll(): Boolean {
-        val layoutManager = rvMessages.layoutManager as LinearLayoutManager
+        val layoutManager = binding.rvMessages.layoutManager as LinearLayoutManager
         val lastVisible = layoutManager.findLastCompletelyVisibleItemPosition()
         val itemCount = layoutManager.itemCount
         return lastVisible >= itemCount - 2
@@ -398,7 +382,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         } else {
             ContextCompat.getColor(this, R.color.md_outline)
         }
-        btnWebSearch.setColorFilter(color)
+        binding.btnWebSearch.setColorFilter(color)
     }
 
     // endregion
@@ -477,7 +461,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                 ModelConfigManager.update(config.copy(defaultModel = modelName))
             }
 
-            tvSelectedModel.text = modelName
+            binding.tvSelectedModel.text = modelName
             Toast.makeText(this, "已选择: $modelName", Toast.LENGTH_SHORT).show()
             dialog?.dismiss()
             true

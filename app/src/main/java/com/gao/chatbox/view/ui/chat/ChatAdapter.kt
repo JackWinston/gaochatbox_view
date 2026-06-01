@@ -1,17 +1,17 @@
 package com.gao.chatbox.view.ui.chat
 
-import android.animation.ObjectAnimator
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.gao.chatbox.view.R
+import com.gao.chatbox.view.databinding.ItemChatMessageAssistantBinding
+import com.gao.chatbox.view.databinding.ItemChatMessageUserBinding
+import com.gao.chatbox.view.databinding.ItemChatStreamingBinding
+import com.gao.chatbox.view.databinding.ItemChatSystemPromptBinding
+import com.gao.chatbox.view.databinding.ItemChatTimestampBinding
 import io.noties.markwon.Markwon
 
 class ChatAdapter(
@@ -44,19 +44,19 @@ class ChatAdapter(
         val inflater = LayoutInflater.from(parent.context)
         return when (viewType) {
             TYPE_TIMESTAMP -> TimestampViewHolder(
-                inflater.inflate(R.layout.item_chat_timestamp, parent, false)
+                ItemChatTimestampBinding.inflate(inflater, parent, false)
             )
             TYPE_SYSTEM_PROMPT -> SystemPromptViewHolder(
-                inflater.inflate(R.layout.item_chat_system_prompt, parent, false)
+                ItemChatSystemPromptBinding.inflate(inflater, parent, false)
             )
             TYPE_USER -> UserMessageViewHolder(
-                inflater.inflate(R.layout.item_chat_message_user, parent, false)
+                ItemChatMessageUserBinding.inflate(inflater, parent, false)
             )
             TYPE_ASSISTANT -> AssistantMessageViewHolder(
-                inflater.inflate(R.layout.item_chat_message_assistant, parent, false)
+                ItemChatMessageAssistantBinding.inflate(inflater, parent, false)
             )
             TYPE_STREAMING -> StreamingViewHolder(
-                inflater.inflate(R.layout.item_chat_streaming, parent, false)
+                ItemChatStreamingBinding.inflate(inflater, parent, false)
             )
             else -> throw IllegalArgumentException("Unknown view type: $viewType")
         }
@@ -87,9 +87,9 @@ class ChatAdapter(
     override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
         super.onViewRecycled(holder)
         when (holder) {
-            is AssistantMessageViewHolder -> holder.tvContent.text = null
+            is AssistantMessageViewHolder -> holder.binding.tvContent.text = null
             is StreamingViewHolder -> {
-                holder.tvContent.text = null
+                holder.binding.tvContent.text = null
                 holder.streamingContent = ""
                 holder.isExpanded = false
             }
@@ -108,26 +108,24 @@ class ChatAdapter(
 
     // ==================== ViewHolders ====================
 
-    class TimestampViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        private val tvTimestamp: TextView = itemView.findViewById(R.id.tv_timestamp)
-
+    class TimestampViewHolder(val binding: ItemChatTimestampBinding) :
+        RecyclerView.ViewHolder(binding.root) {
         fun bind(item: ChatItem.Timestamp) {
-            tvTimestamp.text = item.timeText
+            binding.tvTimestamp.text = item.timeText
         }
     }
 
-    inner class SystemPromptViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        private val tvContent: TextView = itemView.findViewById(R.id.tv_content)
-        private val ivExpandIcon: ImageView = itemView.findViewById(R.id.iv_expand_icon)
+    inner class SystemPromptViewHolder(val binding: ItemChatSystemPromptBinding) :
+        RecyclerView.ViewHolder(binding.root) {
         private var isExpanded = false
         private val collapsedMaxLines = 5
 
         init {
-            itemView.setOnClickListener {
+            binding.root.setOnClickListener {
                 val pos = adapterPosition
                 if (pos != RecyclerView.NO_POSITION) {
                     val item = getItem(pos) as? ChatItem.SystemPrompt ?: return@setOnClickListener
-                    if (tvContent.lineCount > collapsedMaxLines) {
+                    if (binding.tvContent.lineCount > collapsedMaxLines) {
                         listener?.onSystemPromptToggle(pos)
                     }
                 }
@@ -136,7 +134,7 @@ class ChatAdapter(
 
         fun bind(item: ChatItem.SystemPrompt) {
             isExpanded = item.isExpanded
-            tvContent.text = item.content
+            binding.tvContent.text = item.content
             applyExpandState()
         }
 
@@ -147,46 +145,42 @@ class ChatAdapter(
 
         private fun applyExpandState() {
             if (isExpanded) {
-                tvContent.maxLines = Int.MAX_VALUE
-                tvContent.ellipsize = null
-                ivExpandIcon.setImageResource(R.drawable.ic_expand_less)
-                ivExpandIcon.visibility = View.VISIBLE
+                binding.tvContent.maxLines = Int.MAX_VALUE
+                binding.tvContent.ellipsize = null
+                binding.ivExpandIcon.setImageResource(R.drawable.ic_expand_less)
+                binding.ivExpandIcon.visibility = View.VISIBLE
             } else {
-                tvContent.maxLines = collapsedMaxLines
-                tvContent.ellipsize = android.text.TextUtils.TruncateAt.END
-                ivExpandIcon.setImageResource(R.drawable.ic_expand_more)
-                tvContent.post {
-                    ivExpandIcon.visibility = if (tvContent.lineCount > collapsedMaxLines) View.VISIBLE else View.GONE
+                binding.tvContent.maxLines = collapsedMaxLines
+                binding.tvContent.ellipsize = android.text.TextUtils.TruncateAt.END
+                binding.ivExpandIcon.setImageResource(R.drawable.ic_expand_more)
+                binding.tvContent.post {
+                    binding.ivExpandIcon.visibility =
+                        if (binding.tvContent.lineCount > collapsedMaxLines) View.VISIBLE else View.GONE
                 }
             }
         }
     }
 
-    class UserMessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        private val tvContent: TextView = itemView.findViewById(R.id.tv_content)
-        private val dividerAttachment: View = itemView.findViewById(R.id.divider_attachment)
-        private val layoutAttachment: LinearLayout = itemView.findViewById(R.id.layout_attachment)
-        private val tvAttachmentName: TextView = itemView.findViewById(R.id.tv_attachment_name)
-
+    class UserMessageViewHolder(val binding: ItemChatMessageUserBinding) :
+        RecyclerView.ViewHolder(binding.root) {
         fun bind(item: ChatItem.UserMessage) {
-            tvContent.text = item.content
+            binding.tvContent.text = item.content
             if (item.attachmentName != null) {
-                dividerAttachment.visibility = View.VISIBLE
-                layoutAttachment.visibility = View.VISIBLE
-                tvAttachmentName.text = item.attachmentName
+                binding.dividerAttachment.visibility = View.VISIBLE
+                binding.layoutAttachment.visibility = View.VISIBLE
+                binding.tvAttachmentName.text = item.attachmentName
             } else {
-                dividerAttachment.visibility = View.GONE
-                layoutAttachment.visibility = View.GONE
+                binding.dividerAttachment.visibility = View.GONE
+                binding.layoutAttachment.visibility = View.GONE
             }
         }
     }
 
-    inner class AssistantMessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val tvContent: TextView = itemView.findViewById(R.id.tv_content)
-        private val tvModelName: TextView = itemView.findViewById(R.id.tv_model_name)
+    inner class AssistantMessageViewHolder(val binding: ItemChatMessageAssistantBinding) :
+        RecyclerView.ViewHolder(binding.root) {
 
         init {
-            tvContent.setOnLongClickListener {
+            binding.tvContent.setOnLongClickListener {
                 val pos = adapterPosition
                 if (pos != RecyclerView.NO_POSITION) {
                     val item = getItem(pos) as? ChatItem.AssistantMessage
@@ -197,26 +191,23 @@ class ChatAdapter(
         }
 
         fun bind(item: ChatItem.AssistantMessage) {
-            markwon.setMarkdown(tvContent, item.content)
+            markwon.setMarkdown(binding.tvContent, item.content)
             if (item.modelName != null) {
-                tvModelName.text = item.modelName
-                tvModelName.visibility = View.VISIBLE
+                binding.tvModelName.text = item.modelName
+                binding.tvModelName.visibility = View.VISIBLE
             } else {
-                tvModelName.visibility = View.GONE
+                binding.tvModelName.visibility = View.GONE
             }
         }
     }
 
-    inner class StreamingViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        private val progressThinking: ProgressBar = itemView.findViewById(R.id.progress_thinking)
-        private val tvStatus: TextView = itemView.findViewById(R.id.tv_status)
-        private val ivExpand: ImageView = itemView.findViewById(R.id.iv_expand)
-        val tvContent: TextView = itemView.findViewById(R.id.tv_content)
+    inner class StreamingViewHolder(val binding: ItemChatStreamingBinding) :
+        RecyclerView.ViewHolder(binding.root) {
         var streamingContent: String = ""
         var isExpanded: Boolean = false
 
         init {
-            itemView.findViewById<View>(R.id.layout_header).setOnClickListener {
+            binding.layoutHeader.setOnClickListener {
                 toggleExpand()
             }
         }
@@ -224,21 +215,21 @@ class ChatAdapter(
         fun bind(item: ChatItem.StreamingMessage) {
             val content = streamingContent.ifEmpty { item.content }
             if (item.isThinking && content.isEmpty()) {
-                progressThinking.visibility = View.VISIBLE
-                tvStatus.text = itemView.context.getString(R.string.chat_thinking)
+                binding.progressThinking.visibility = View.VISIBLE
+                binding.tvStatus.text = itemView.context.getString(R.string.chat_thinking)
             } else {
-                progressThinking.visibility = View.GONE
-                tvStatus.text = itemView.context.getString(R.string.chat_streaming_done)
+                binding.progressThinking.visibility = View.GONE
+                binding.tvStatus.text = itemView.context.getString(R.string.chat_streaming_done)
             }
             applyExpandState(content)
         }
 
         fun updateStreamingContent(content: String) {
             streamingContent = content
-            progressThinking.visibility = View.GONE
-            tvStatus.text = itemView.context.getString(R.string.chat_streaming_responding)
+            binding.progressThinking.visibility = View.GONE
+            binding.tvStatus.text = itemView.context.getString(R.string.chat_streaming_responding)
             if (isExpanded) {
-                tvContent.text = content
+                binding.tvContent.text = content
             }
         }
 
@@ -246,7 +237,7 @@ class ChatAdapter(
             isExpanded = !isExpanded
             applyExpandState(streamingContent)
             if (isExpanded) {
-                tvContent.post {
+                binding.tvContent.post {
                     val parent = itemView.parent
                     if (parent is RecyclerView) {
                         val pos = adapterPosition
@@ -260,12 +251,12 @@ class ChatAdapter(
 
         private fun applyExpandState(content: String) {
             if (isExpanded) {
-                ivExpand.setImageResource(R.drawable.ic_expand_less)
-                tvContent.visibility = View.VISIBLE
-                tvContent.text = content
+                binding.ivExpand.setImageResource(R.drawable.ic_expand_less)
+                binding.tvContent.visibility = View.VISIBLE
+                binding.tvContent.text = content
             } else {
-                ivExpand.setImageResource(R.drawable.ic_expand_more)
-                tvContent.visibility = View.GONE
+                binding.ivExpand.setImageResource(R.drawable.ic_expand_more)
+                binding.tvContent.visibility = View.GONE
             }
         }
     }
