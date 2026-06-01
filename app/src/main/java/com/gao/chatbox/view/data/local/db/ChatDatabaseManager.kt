@@ -1,0 +1,115 @@
+package com.gao.chatbox.view.data.local.db
+
+import android.content.Context
+import com.gao.chatbox.view.data.local.db.entity.ConversationEntity
+import com.gao.chatbox.view.data.local.db.entity.MessageEntity
+import kotlinx.coroutines.flow.Flow
+
+class ChatDatabaseManager(context: Context) {
+
+    private val db = AppDatabase.getInstance(context)
+    private val conversationDao = db.conversationDao()
+    private val messageDao = db.messageDao()
+
+    companion object {
+        const val ROLE_USER = "user"
+        const val ROLE_ASSISTANT = "assistant"
+        const val ROLE_SYSTEM = "system"
+
+        @Volatile
+        private var INSTANCE: ChatDatabaseManager? = null
+
+        fun getInstance(context: Context): ChatDatabaseManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: ChatDatabaseManager(context.applicationContext).also { INSTANCE = it }
+            }
+        }
+    }
+
+    // ==================== Conversation ====================
+
+    fun getAllConversations(): Flow<List<ConversationEntity>> = conversationDao.getAll()
+
+    fun getConversation(id: Long): Flow<ConversationEntity?> = conversationDao.getById(id)
+
+    fun searchConversations(keyword: String): Flow<List<ConversationEntity>> =
+        conversationDao.search(keyword)
+
+    suspend fun createConversation(
+        title: String,
+        modelId: Long,
+        characterId: Long? = null,
+        systemPrompt: String? = null
+    ): Long {
+        val conversation = ConversationEntity(
+            title = title,
+            modelId = modelId,
+            characterId = characterId,
+            systemPrompt = systemPrompt
+        )
+        return conversationDao.insert(conversation)
+    }
+
+    suspend fun updateConversation(conversation: ConversationEntity) =
+        conversationDao.update(conversation)
+
+    suspend fun deleteConversation(id: Long) = conversationDao.deleteById(id)
+
+    // ==================== Message ====================
+
+    fun getMessages(conversationId: Long): Flow<List<MessageEntity>> =
+        messageDao.getByConversation(conversationId)
+
+    fun getRecentMessages(conversationId: Long, limit: Int = 20): Flow<List<MessageEntity>> =
+        messageDao.getRecent(conversationId, limit)
+
+    suspend fun addUserMessage(conversationId: Long, content: String, tokenCount: Int = 0): Long {
+        val message = MessageEntity(
+            conversationId = conversationId,
+            role = ROLE_USER,
+            content = content,
+            tokenCount = tokenCount
+        )
+        val id = messageDao.insert(message)
+        conversationDao.updateTimestamp(conversationId)
+        return id
+    }
+
+    suspend fun addAssistantMessage(
+        conversationId: Long,
+        content: String,
+        tokenCount: Int = 0,
+        isStreaming: Boolean = false
+    ): Long {
+        val message = MessageEntity(
+            conversationId = conversationId,
+            role = ROLE_ASSISTANT,
+            content = content,
+            tokenCount = tokenCount,
+            isStreaming = isStreaming
+        )
+        val id = messageDao.insert(message)
+        conversationDao.updateTimestamp(conversationId)
+        return id
+    }
+
+    suspend fun updateStreamingMessage(messageId: Long, content: String, tokenCount: Int) {
+        messageDao.updateContent(messageId, content, tokenCount, true)
+    }
+
+    suspend fun finishStreamingMessage(messageId: Long, content: String, tokenCount: Int) {
+        messageDao.updateContent(messageId, content, tokenCount, false)
+    }
+
+    suspend fun deleteMessage(messageId: Long) {
+        val message = messageDao.getById(messageId) ?: return
+        messageDao.delete(message)
+        conversationDao.recalcTokenCount(message.conversationId)
+    }
+
+    suspend fun getMessageCount(conversationId: Long): Int =
+        messageDao.countByConversation(conversationId)
+
+    suspend fun getTotalTokens(conversationId: Long): Int =
+        messageDao.totalTokensByConversation(conversationId)
+}
