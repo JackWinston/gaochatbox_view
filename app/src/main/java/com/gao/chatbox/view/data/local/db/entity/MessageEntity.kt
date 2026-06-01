@@ -24,6 +24,7 @@ data class MessageEntity(
     val role: String,
     val content: String,
     val tokenCount: Int = 0,
+    val modelName: String? = null,
     val isStreaming: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )

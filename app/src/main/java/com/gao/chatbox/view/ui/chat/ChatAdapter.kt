@@ -10,7 +10,11 @@ import androidx.recyclerview.widget.RecyclerView
 import com.chad.library.adapter4.BaseMultiItemAdapter
 import com.chad.library.adapter4.viewholder.QuickViewHolder
 import com.gao.chatbox.view.R
+import com.tencent.mmkv.MMKV
 import io.noties.markwon.Markwon
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ChatAdapter(
     private val markwon: Markwon,
@@ -23,7 +27,15 @@ class ChatAdapter(
         const val TYPE_USER = 2
         const val TYPE_ASSISTANT = 3
         const val TYPE_STREAMING = 4
+
+        private const val KEY_SHOW_CHAR_COUNT = "ui_show_char_count"
+        private const val KEY_SHOW_TOKEN_COUNT = "ui_show_token_count"
+        private const val KEY_SHOW_MODEL_NAME = "ui_show_model_name"
+        private const val KEY_SHOW_TIMESTAMP = "ui_show_timestamp"
     }
+
+    private val mmkv: MMKV by lazy { MMKV.defaultMMKV() }
+    private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
     interface ChatAdapterListener {
         fun onSystemPromptToggle(position: Int)
@@ -157,7 +169,37 @@ class ChatAdapter(
                 val tvContent = holder.getView<TextView>(R.id.tv_content)
                 markwon.setMarkdown(tvContent, msg.content)
 
-                if (msg.modelName != null) {
+                // 读取设置
+                val showCharCount = mmkv.decodeBool(KEY_SHOW_CHAR_COUNT, false)
+                val showTokenCount = mmkv.decodeBool(KEY_SHOW_TOKEN_COUNT, false)
+                val showModelName = mmkv.decodeBool(KEY_SHOW_MODEL_NAME, false)
+                val showTimestamp = mmkv.decodeBool(KEY_SHOW_TIMESTAMP, false)
+
+                // 构建提示信息
+                val metaParts = mutableListOf<String>()
+                if (showCharCount) {
+                    metaParts.add("${msg.content.length}字")
+                }
+                if (showTokenCount && msg.tokenCount > 0) {
+                    metaParts.add("${msg.tokenCount}tok")
+                }
+                if (showModelName && !msg.modelName.isNullOrEmpty()) {
+                    metaParts.add(msg.modelName!!)
+                }
+                if (showTimestamp && msg.createdAt > 0) {
+                    metaParts.add(timeFormat.format(Date(msg.createdAt)))
+                }
+
+                val tvMetaInfo = holder.getView<TextView>(R.id.tv_meta_info)
+                if (metaParts.isNotEmpty()) {
+                    tvMetaInfo.text = metaParts.joinToString(" · ")
+                    tvMetaInfo.visibility = View.VISIBLE
+                } else {
+                    tvMetaInfo.visibility = View.GONE
+                }
+
+                // 模型名称标签（顶部）
+                if (showModelName && msg.modelName != null) {
                     holder.setText(R.id.tv_model_name, msg.modelName)
                     holder.setVisible(R.id.tv_model_name, true)
                 } else {

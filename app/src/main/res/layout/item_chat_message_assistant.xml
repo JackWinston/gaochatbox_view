@@ -56,4 +56,14 @@
 
     </com.google.android.material.card.MaterialCardView>
 
+    <TextView
+        android:id="@+id/tv_meta_info"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:layout_marginStart="4dp"
+        android:textColor="?attr/colorOutline"
+        android:textSize="10sp"
+        android:visibility="gone" />
+
 </LinearLayout>

@@ -6,7 +6,8 @@ data class OpenAiChatRequest(
     @SerializedName("model") val model: String,
     @SerializedName("messages") val messages: List<OpenAiChatMessage>,
     @SerializedName("temperature") val temperature: Float = 0.7f,
-    @SerializedName("stream") val stream: Boolean = true
+    @SerializedName("stream") val stream: Boolean = true,
+    @SerializedName("stream_options") val streamOptions: Map<String, Any>? = null
 )
 
 data class OpenAiChatMessage(
@@ -16,7 +17,13 @@ data class OpenAiChatMessage(
 
 data class OpenAiStreamChunk(
     @SerializedName("id") val id: String = "",
-    @SerializedName("choices") val choices: List<OpenAiStreamChoice> = emptyList()
+    @SerializedName("choices") val choices: List<OpenAiStreamChoice> = emptyList(),
+    @SerializedName("usage") val usage: OpenAiUsage? = null
+)
+
+data class OpenAiUsage(
+    @SerializedName("prompt_tokens") val promptTokens: Int = 0,
+    @SerializedName("completion_tokens") val completionTokens: Int = 0
 )
 
 data class OpenAiStreamChoice(

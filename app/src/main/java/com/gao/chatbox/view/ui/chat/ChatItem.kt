@@ -28,7 +28,8 @@ sealed class ChatItem {
         override val id: String,
         val content: String,
         val modelName: String? = null,
-        val tokenCount: Int = 0
+        val tokenCount: Int = 0,
+        val createdAt: Long = 0L
     ) : ChatItem()
 
     data class StreamingMessage(

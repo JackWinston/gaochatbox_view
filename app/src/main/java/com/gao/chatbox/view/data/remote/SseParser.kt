@@ -9,22 +9,28 @@ import okhttp3.ResponseBody
 
 sealed class StreamEvent {
     data class ContentDelta(val text: String) : StreamEvent()
-    data object StreamEnd : StreamEvent()
+    data class StreamEnd(val usage: TokenUsage? = null) : StreamEvent()
     data class Error(val message: String, val cause: Throwable? = null) : StreamEvent()
 }
+
+data class TokenUsage(
+    val promptTokens: Int = 0,
+    val completionTokens: Int = 0
+)
 
 object SseParser {
 
     fun parseOpenAiStream(body: ResponseBody): Flow<StreamEvent> = flow {
         val gson = Gson()
         val reader = body.charStream().buffered()
+        var lastUsage: TokenUsage? = null
         try {
             while (true) {
                 val line = reader.readLine() ?: break
                 if (line.startsWith("data: ")) {
                     val data = line.removePrefix("data: ").trim()
                     if (data == "[DONE]") {
-                        emit(StreamEvent.StreamEnd)
+                        emit(StreamEvent.StreamEnd(lastUsage))
                         break
                     }
                     try {
@@ -32,6 +38,9 @@ object SseParser {
                         val content = chunk.choices.firstOrNull()?.delta?.content
                         if (!content.isNullOrEmpty()) {
                             emit(StreamEvent.ContentDelta(content))
+                        }
+                        chunk.usage?.let {
+                            lastUsage = TokenUsage(it.promptTokens, it.completionTokens)
                         }
                     } catch (_: Exception) {
                         // Skip malformed JSON lines
@@ -49,6 +58,7 @@ object SseParser {
     fun parseAnthropicStream(body: ResponseBody): Flow<StreamEvent> = flow {
         val gson = Gson()
         val reader = body.charStream().buffered()
+        var lastUsage: TokenUsage? = null
         try {
             while (true) {
                 val line = reader.readLine() ?: break
@@ -63,8 +73,13 @@ object SseParser {
                                     emit(StreamEvent.ContentDelta(text))
                                 }
                             }
+                            "message_delta" -> {
+                                event.usage?.let {
+                                    lastUsage = TokenUsage(it.inputTokens, it.outputTokens)
+                                }
+                            }
                             "message_stop" -> {
-                                emit(StreamEvent.StreamEnd)
+                                emit(StreamEvent.StreamEnd(lastUsage))
                                 break
                             }
                         }

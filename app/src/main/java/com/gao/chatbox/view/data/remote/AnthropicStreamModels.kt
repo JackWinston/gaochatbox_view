@@ -7,7 +7,8 @@ data class AnthropicStreamEvent(
     @SerializedName("index") val index: Int = 0,
     @SerializedName("delta") val delta: AnthropicStreamDelta = AnthropicStreamDelta(),
     @SerializedName("content_block") val contentBlock: AnthropicStreamContentBlock = AnthropicStreamContentBlock(),
-    @SerializedName("message") val message: AnthropicStreamMessage = AnthropicStreamMessage()
+    @SerializedName("message") val message: AnthropicStreamMessage = AnthropicStreamMessage(),
+    @SerializedName("usage") val usage: AnthropicUsage? = null
 )
 
 data class AnthropicStreamDelta(

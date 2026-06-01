@@ -284,15 +284,10 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                                 lastUIUpdateTime = now
                                 updateStreamingUI(accumulatedContent)
                             }
-                            if (accumulatedContent.length % 500 < event.text.length) {
-                                chatRepository.updateStreamingContent(
-                                    currentAssistantMessageId, accumulatedContent
-                                )
-                            }
                         }
                         is StreamEvent.StreamEnd -> {
                             updateStreamingUI(accumulatedContent)
-                            finishStreaming()
+                            finishStreaming(event.usage?.completionTokens)
                         }
                         is StreamEvent.Error -> {
                             showErrorMessage(event.message)
@@ -317,8 +312,8 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         }
     }
 
-    private suspend fun finishStreaming() {
-        chatRepository.finishMessage(currentAssistantMessageId, accumulatedContent)
+    private suspend fun finishStreaming(tokenCount: Int? = null) {
+        chatRepository.finishMessage(currentAssistantMessageId, accumulatedContent, tokenCount)
 
         // Update ViewHolder directly one last time
         updateStreamingUI(accumulatedContent)
@@ -330,7 +325,9 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             items[idx] = ChatItem.AssistantMessage(
                 id = "msg_${System.currentTimeMillis()}",
                 content = accumulatedContent,
-                modelName = selectedModelName.ifEmpty { null }
+                modelName = selectedModelName.ifEmpty { null },
+                tokenCount = tokenCount ?: 0,
+                createdAt = System.currentTimeMillis()
             )
             chatAdapter.submitList(items)
             if (scrollNeeded) {
@@ -459,7 +456,10 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                         items.add(
                             ChatItem.AssistantMessage(
                                 id = "msg_${msg.id}",
-                                content = msg.content
+                                content = msg.content,
+                                modelName = msg.modelName,
+                                tokenCount = msg.tokenCount,
+                                createdAt = msg.createdAt
                             )
                         )
                     }

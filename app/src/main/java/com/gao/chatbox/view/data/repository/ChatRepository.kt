@@ -64,13 +64,14 @@ class ChatRepository(context: Context) {
 
         dbManager.addUserMessage(convId, userMessage)
 
+        val model = config.defaultModel.ifEmpty { config.models.firstOrNull() ?: "" }
+
         val assistantMsgId = dbManager.addAssistantMessage(
             conversationId = convId,
             content = "",
+            modelName = model,
             isStreaming = true
         )
-
-        val model = config.defaultModel.ifEmpty { config.models.firstOrNull() ?: "" }
 
         val stream = when (config.apiType) {
             ModelConfig.API_TYPE_ANTHROPIC -> {
@@ -97,7 +98,8 @@ class ChatRepository(context: Context) {
                     model = model,
                     messages = messages,
                     temperature = config.temperature,
-                    stream = true
+                    stream = true,
+                    streamOptions = mapOf("include_usage" to true)
                 )
                 val responseBody = api.createChatCompletionStream(
                     authorization = "Bearer ${config.apiKey}",
@@ -118,8 +120,8 @@ class ChatRepository(context: Context) {
         dbManager.updateStreamingMessage(messageId, partialContent, tokenCount = 0)
     }
 
-    suspend fun finishMessage(messageId: Long, fullContent: String) {
-        dbManager.finishStreamingMessage(messageId, fullContent, tokenCount = 0)
+    suspend fun finishMessage(messageId: Long, fullContent: String, tokenCount: Int? = null) {
+        dbManager.finishStreamingMessage(messageId, fullContent, tokenCount = tokenCount ?: 0)
     }
 
     suspend fun generateTitle(

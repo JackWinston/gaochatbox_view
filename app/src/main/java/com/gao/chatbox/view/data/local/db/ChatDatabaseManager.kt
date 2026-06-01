@@ -97,6 +97,7 @@ class ChatDatabaseManager(context: Context) {
         conversationId: Long,
         content: String,
         tokenCount: Int = 0,
+        modelName: String? = null,
         isStreaming: Boolean = false
     ): Long {
         val message = MessageEntity(
@@ -104,6 +105,7 @@ class ChatDatabaseManager(context: Context) {
             role = ROLE_ASSISTANT,
             content = content,
             tokenCount = tokenCount,
+            modelName = modelName,
             isStreaming = isStreaming
         )
         val id = messageDao.insert(message)
