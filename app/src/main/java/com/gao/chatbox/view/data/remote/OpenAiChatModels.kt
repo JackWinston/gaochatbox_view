@@ -11,7 +11,7 @@ data class OpenAiChatRequest(
 
 data class OpenAiChatMessage(
     @SerializedName("role") val role: String,
-    @SerializedName("content") val content: String
+    @SerializedName("content") val content: Any
 )
 
 data class OpenAiStreamChunk(

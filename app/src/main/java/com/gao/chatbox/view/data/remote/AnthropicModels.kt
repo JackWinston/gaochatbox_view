@@ -13,7 +13,7 @@ data class AnthropicMessageRequest(
 
 data class AnthropicMessage(
     @SerializedName("role") val role: String,
-    @SerializedName("content") val content: String
+    @SerializedName("content") val content: Any
 )
 
 data class AnthropicMessageResponse(

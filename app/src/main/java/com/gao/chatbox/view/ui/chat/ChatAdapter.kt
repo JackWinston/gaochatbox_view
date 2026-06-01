@@ -125,6 +125,16 @@ class ChatAdapter(
             override fun onBind(holder: QuickViewHolder, position: Int, item: ChatItem?) {
                 val msg = item as? ChatItem.UserMessage ?: return
                 holder.setText(R.id.tv_content, msg.content)
+
+                val ivImage = holder.getView<ImageView>(R.id.iv_image)
+                if (msg.imageUri != null) {
+                    ivImage.setImageURI(android.net.Uri.parse(msg.imageUri))
+                    ivImage.visibility = View.VISIBLE
+                } else {
+                    ivImage.setImageDrawable(null)
+                    ivImage.visibility = View.GONE
+                }
+
                 if (msg.attachmentName != null) {
                     holder.setVisible(R.id.divider_attachment, true)
                     holder.setVisible(R.id.layout_attachment, true)

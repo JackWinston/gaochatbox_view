@@ -20,7 +20,9 @@ data class StreamResult(
 
 data class MessageContext(
     val role: String,
-    val content: String
+    val content: String,
+    val imageBase64: String? = null,
+    val mediaType: String? = null
 )
 
 class ChatRepository(context: Context) {
@@ -43,7 +45,9 @@ class ChatRepository(context: Context) {
         userMessage: String,
         history: List<MessageContext>,
         config: ModelConfig,
-        systemPrompt: String?
+        systemPrompt: String?,
+        imageBase64: String? = null,
+        mediaType: String? = null
     ): StreamResult {
         val convId = if (conversationId == 0L) {
             dbManager.createConversation(
@@ -67,7 +71,7 @@ class ChatRepository(context: Context) {
         val stream = when (config.apiType) {
             ModelConfig.API_TYPE_ANTHROPIC -> {
                 val api = ApiClient.buildAnthropicApiStreaming(config.apiUrl)
-                val messages = buildAnthropicMessages(history, userMessage)
+                val messages = buildAnthropicMessages(history, userMessage, imageBase64, mediaType)
                 val request = AnthropicMessageRequest(
                     model = model,
                     maxTokens = 4096,
@@ -84,7 +88,7 @@ class ChatRepository(context: Context) {
             }
             else -> {
                 val api = ApiClient.buildOpenAiApiStreaming(config.apiUrl)
-                val messages = buildOpenAiMessages(history, userMessage, systemPrompt)
+                val messages = buildOpenAiMessages(history, userMessage, systemPrompt, imageBase64, mediaType)
                 val request = OpenAiChatRequest(
                     model = model,
                     messages = messages,
@@ -117,7 +121,9 @@ class ChatRepository(context: Context) {
     private fun buildOpenAiMessages(
         history: List<MessageContext>,
         userMessage: String,
-        systemPrompt: String?
+        systemPrompt: String?,
+        imageBase64: String?,
+        mediaType: String?
     ): List<OpenAiChatMessage> {
         val messages = mutableListOf<OpenAiChatMessage>()
         if (!systemPrompt.isNullOrBlank()) {
@@ -126,19 +132,37 @@ class ChatRepository(context: Context) {
         for (msg in history) {
             messages.add(OpenAiChatMessage(role = msg.role, content = msg.content))
         }
-        messages.add(OpenAiChatMessage(role = "user", content = userMessage))
+        val content: Any = if (imageBase64 != null) {
+            listOf(
+                mapOf("type" to "text", "text" to userMessage),
+                mapOf("type" to "image_url", "image_url" to mapOf("url" to "data:${mediaType ?: "image/jpeg"};base64,$imageBase64"))
+            )
+        } else {
+            userMessage
+        }
+        messages.add(OpenAiChatMessage(role = "user", content = content))
         return messages
     }
 
     private fun buildAnthropicMessages(
         history: List<MessageContext>,
-        userMessage: String
+        userMessage: String,
+        imageBase64: String?,
+        mediaType: String?
     ): List<AnthropicMessage> {
         val messages = mutableListOf<AnthropicMessage>()
         for (msg in history) {
             messages.add(AnthropicMessage(role = msg.role, content = msg.content))
         }
-        messages.add(AnthropicMessage(role = "user", content = userMessage))
+        val content: Any = if (imageBase64 != null) {
+            listOf(
+                mapOf("type" to "image", "source" to mapOf("type" to "base64", "media_type" to (mediaType ?: "image/jpeg"), "data" to imageBase64)),
+                mapOf("type" to "text", "text" to userMessage)
+            )
+        } else {
+            userMessage
+        }
+        messages.add(AnthropicMessage(role = "user", content = content))
         return messages
     }
 }

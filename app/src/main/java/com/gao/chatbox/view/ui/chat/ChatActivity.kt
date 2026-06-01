@@ -60,6 +60,9 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     private var webSearchEnabled: Boolean = false
     private var selectedModelName: String = ""
     private var currentAttachmentName: String? = null
+    private var currentImageUri: String? = null
+    private var currentImageBase64: String? = null
+    private var currentMediaType: String? = null
     private var currentConversationId: Long = 0L
     private var currentAssistantMessageId: Long = 0L
     private var isStreaming: Boolean = false
@@ -192,15 +195,22 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         }
 
         // Add user message + streaming placeholder in one submit
+        val imageUri = currentImageUri
+        val imageBase64 = currentImageBase64
+        val mediaType = currentMediaType
         items.add(
             ChatItem.UserMessage(
                 id = "msg_$now",
                 content = text,
-                attachmentName = currentAttachmentName
+                attachmentName = currentAttachmentName,
+                imageUri = imageUri
             )
         )
         items.add(ChatItem.StreamingMessage(isThinking = true))
         currentAttachmentName = null
+        currentImageUri = null
+        currentImageBase64 = null
+        currentMediaType = null
         chatAdapter.submitList(items)
         scrollToBottom()
 
@@ -225,7 +235,9 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                     userMessage = text,
                     history = history,
                     config = config,
-                    systemPrompt = systemPromptContent.ifBlank { null }
+                    systemPrompt = systemPromptContent.ifBlank { null },
+                    imageBase64 = imageBase64,
+                    mediaType = mediaType
                 )
                 currentConversationId = result.conversationId
                 currentAssistantMessageId = result.assistantMessageId
@@ -362,8 +374,41 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     // region Image & File picker
 
     private fun onImagePicked(uri: Uri) {
-        Toast.makeText(this, "图片已选择: $uri", Toast.LENGTH_SHORT).show()
+        currentImageUri = uri.toString()
         currentAttachmentName = uri.lastPathSegment ?: "image"
+        currentMediaType = contentResolver.getType(uri) ?: "image/jpeg"
+
+        try {
+            val bitmap = android.provider.MediaStore.Images.Media.getBitmap(contentResolver, uri)
+            // 压缩到最大 1024px
+            val maxDim = 1024
+            val scale = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height, 1f)
+            val scaledBitmap = if (scale < 1f) {
+                android.graphics.Bitmap.createScaledBitmap(
+                    bitmap,
+                    (bitmap.width * scale).toInt(),
+                    (bitmap.height * scale).toInt(),
+                    true
+                )
+            } else bitmap
+
+            val outputStream = java.io.ByteArrayOutputStream()
+            scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, outputStream)
+            currentImageBase64 = android.util.Base64.encodeToString(
+                outputStream.toByteArray(),
+                android.util.Base64.NO_WRAP
+            )
+
+            if (scaledBitmap !== bitmap) scaledBitmap.recycle()
+            bitmap.recycle()
+
+            Toast.makeText(this, "图片已选择", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "图片读取失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            currentImageUri = null
+            currentImageBase64 = null
+            currentMediaType = null
+        }
     }
 
     private fun onFilePicked(uri: Uri) {
