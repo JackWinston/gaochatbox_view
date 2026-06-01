@@ -33,7 +33,7 @@ class QuickStartFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        SystemPromptManager.init(requireContext())
+        SystemPromptManager.init()
         rvPrompts = view.findViewById(R.id.rv_prompts)
 
         val layoutManager = FlexboxLayoutManager(requireContext()).apply {

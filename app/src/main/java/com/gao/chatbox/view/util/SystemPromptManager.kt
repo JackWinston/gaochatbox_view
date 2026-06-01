@@ -1,21 +1,21 @@
 package com.gao.chatbox.view.util
 
-import android.content.Context
-import android.content.SharedPreferences
 import com.gao.chatbox.view.data.model.SystemPrompt
-import org.json.JSONArray
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import com.tencent.mmkv.MMKV
 
 object SystemPromptManager {
 
-    private const val PREFS_NAME = "system_prompts_prefs"
     private const val KEY_PROMPTS = "system_prompts"
     private const val KEY_INITIALIZED = "initialized"
 
-    private lateinit var prefs: SharedPreferences
+    private val mmkv: MMKV by lazy { MMKV.defaultMMKV() }
+    private val gson = Gson()
+    private val listType = object : TypeToken<List<SystemPrompt>>() {}.type
 
-    fun init(context: Context) {
-        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (!prefs.getBoolean(KEY_INITIALIZED, false)) {
+    fun init() {
+        if (!mmkv.decodeBool(KEY_INITIALIZED, false)) {
             initDefault()
         }
     }
@@ -26,19 +26,14 @@ object SystemPromptManager {
             tag = "默认",
             isDefault = true
         )
-        val array = JSONArray()
-        array.put(defaultPrompt.toJson())
-        prefs.edit()
-            .putString(KEY_PROMPTS, array.toString())
-            .putBoolean(KEY_INITIALIZED, true)
-            .apply()
+        mmkv.encode(KEY_PROMPTS, gson.toJson(listOf(defaultPrompt)))
+        mmkv.encode(KEY_INITIALIZED, true)
     }
 
     fun getAll(): List<SystemPrompt> {
-        val json = prefs.getString(KEY_PROMPTS, null) ?: return emptyList()
+        val json = mmkv.decodeString(KEY_PROMPTS, null) ?: return emptyList()
         return try {
-            val array = JSONArray(json)
-            (0 until array.length()).map { SystemPrompt.fromJson(array.getJSONObject(it)) }
+            gson.fromJson(json, listType)
         } catch (e: Exception) {
             emptyList()
         }
@@ -68,8 +63,6 @@ object SystemPromptManager {
     }
 
     private fun saveList(list: List<SystemPrompt>) {
-        val array = JSONArray()
-        list.forEach { array.put(it.toJson()) }
-        prefs.edit().putString(KEY_PROMPTS, array.toString()).apply()
+        mmkv.encode(KEY_PROMPTS, gson.toJson(list))
     }
 }

@@ -9,6 +9,8 @@ appcompat = "1.7.1"
 material = "1.12.0"
 constraintlayout = "2.2.1"
 flexbox = "3.0.0"
+gson = "2.14.0"
+mmkv = "2.4.0"
 kotlin = "2.2.10"
 
 [libraries]
@@ -21,6 +23,8 @@ androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
 flexbox = { group = "com.google.android.flexbox", name = "flexbox", version.ref = "flexbox" }
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+mmkv = { group = "com.tencent", name = "mmkv", version.ref = "mmkv" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
