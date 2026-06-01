@@ -11,7 +11,7 @@ import com.gao.chatbox.view.data.local.db.entity.MessageEntity
 
 @Database(
     entities = [ConversationEntity::class, MessageEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -29,7 +29,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "chatbox.db"
-                ).build().also { INSTANCE = it }
+                ).fallbackToDestructiveMigration(dropAllTables = true).build().also { INSTANCE = it }
             }
         }
     }

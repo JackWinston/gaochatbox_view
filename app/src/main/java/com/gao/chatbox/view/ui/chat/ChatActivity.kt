@@ -240,6 +240,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                     userMessage = text,
                     history = history,
                     config = config,
+                    systemPromptTag = systemPromptTag.ifBlank { null },
                     systemPrompt = systemPromptContent.ifBlank { null },
                     imageBase64 = imageBase64,
                     mediaType = mediaType
@@ -332,7 +333,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                 titleGenerated = true
                 systemPromptTag = title
                 binding.toolbar.title = title
-                chatRepository.updateConversationTitle(currentConversationId, title)
+                chatRepository.updateConversationTitle(currentConversationId, title, title)
             }
         }
     }
@@ -572,7 +573,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                     systemPromptTag = newTitle
                     binding.toolbar.title = newTitle
                     lifecycleScope.launch {
-                        chatRepository.updateConversationTitle(currentConversationId, newTitle)
+                        chatRepository.updateConversationTitle(currentConversationId, newTitle, newTitle)
                     }
                 }
             }

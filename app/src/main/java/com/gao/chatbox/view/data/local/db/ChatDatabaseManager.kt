@@ -39,13 +39,16 @@ class ChatDatabaseManager(context: Context) {
         title: String,
         modelId: Long,
         characterId: Long? = null,
+        systemPromptTag: String? = null,
         systemPrompt: String? = null
     ): Long {
         val conversation = ConversationEntity(
             title = title,
             modelId = modelId,
             characterId = characterId,
-            systemPrompt = systemPrompt
+            systemPromptTag = systemPromptTag,
+            systemPrompt = systemPrompt,
+            displayTag = systemPromptTag
         )
         return conversationDao.insert(conversation)
     }
@@ -55,8 +58,8 @@ class ChatDatabaseManager(context: Context) {
 
     suspend fun deleteConversation(id: Long) = conversationDao.deleteById(id)
 
-    suspend fun updateConversationTitle(id: Long, title: String) =
-        conversationDao.updateTitle(id, title)
+    suspend fun updateConversationTitle(id: Long, title: String, displayTag: String? = null) =
+        conversationDao.updateTitle(id, title, displayTag)
 
     // ==================== Message ====================
 

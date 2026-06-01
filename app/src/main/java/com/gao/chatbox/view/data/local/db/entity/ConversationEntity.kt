@@ -14,7 +14,9 @@ data class ConversationEntity(
     val title: String,
     val characterId: Long? = null,
     val modelId: Long,
+    val systemPromptTag: String? = null,
     val systemPrompt: String? = null,
+    val displayTag: String? = null,
     val totalTokenCount: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()

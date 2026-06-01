@@ -46,6 +46,7 @@ class ChatRepository(context: Context) {
         userMessage: String,
         history: List<MessageContext>,
         config: ModelConfig,
+        systemPromptTag: String?,
         systemPrompt: String?,
         imageBase64: String? = null,
         mediaType: String? = null
@@ -53,7 +54,9 @@ class ChatRepository(context: Context) {
         val convId = if (conversationId == 0L) {
             dbManager.createConversation(
                 title = userMessage.take(50),
-                modelId = 0L
+                modelId = 0L,
+                systemPromptTag = systemPromptTag,
+                systemPrompt = systemPrompt
             )
         } else {
             conversationId
@@ -161,8 +164,8 @@ class ChatRepository(context: Context) {
         }
     }
 
-    suspend fun updateConversationTitle(conversationId: Long, title: String) {
-        dbManager.updateConversationTitle(conversationId, title)
+    suspend fun updateConversationTitle(conversationId: Long, title: String, displayTag: String? = null) {
+        dbManager.updateConversationTitle(conversationId, title, displayTag)
     }
 
     private fun buildOpenAiMessages(
