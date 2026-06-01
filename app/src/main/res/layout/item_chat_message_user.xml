@@ -27,15 +27,59 @@
         app:cardElevation="0dp"
         app:strokeWidth="0dp">
 
-        <TextView
-            android:id="@+id/tv_content"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:maxWidth="280dp"
-            android:paddingHorizontal="14dp"
-            android:paddingVertical="10dp"
-            android:textColor="?attr/colorOnPrimaryContainer"
-            android:textSize="15sp" />
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_content"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxWidth="280dp"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="10dp"
+                android:textColor="?attr/colorOnPrimaryContainer"
+                android:textSize="15sp" />
+
+            <View
+                android:id="@+id/divider_attachment"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?attr/colorOutlineVariant"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/layout_attachment"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="6dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:contentDescription="@string/btn_select_file"
+                    android:src="@drawable/ic_attach_file"
+                    app:tint="?attr/colorOnPrimaryContainer" />
+
+                <TextView
+                    android:id="@+id/tv_attachment_name"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:ellipsize="middle"
+                    android:maxWidth="200dp"
+                    android:singleLine="true"
+                    android:textColor="?attr/colorOnPrimaryContainer"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
 
     </com.google.android.material.card.MaterialCardView>
 

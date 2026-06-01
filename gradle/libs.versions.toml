@@ -14,6 +14,7 @@ mmkv = "2.4.0"
 okhttp = "4.12.0"
 retrofit = "2.11.0"
 room = "2.7.1"
+markwon = "4.6.2"
 kotlin = "2.2.10"
 
 [libraries]
@@ -35,6 +36,10 @@ retrofit-gson = { group = "com.squareup.retrofit2", name = "converter-gson", ver
 room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+markwon-core = { group = "io.noties.markwon", name = "core", version.ref = "markwon" }
+markwon-ext-tables = { group = "io.noties.markwon", name = "ext-tables", version.ref = "markwon" }
+markwon-linkify = { group = "io.noties.markwon", name = "linkify", version.ref = "markwon" }
+markwon-ext-strikethrough = { group = "io.noties.markwon", name = "ext-strikethrough", version.ref = "markwon" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -188,8 +188,8 @@ class SettingsFragment : Fragment() {
                     updateUiForApiType(newType)
                     if (etApiUrl.text.isNullOrEmpty()) {
                         when (newType) {
-                            API_TYPE_OPENAI -> etApiUrl.setText("https://api.openai.com/v1")
-                            API_TYPE_ANTHROPIC -> etApiUrl.setText("https://api.anthropic.com/v1")
+                            API_TYPE_OPENAI -> etApiUrl.setHint("https://api.openai.com/v1")
+                            API_TYPE_ANTHROPIC -> etApiUrl.setHint("https://api.anthropic.com/v1")
                         }
                     }
                     if (newType == API_TYPE_ANTHROPIC && etContextLimit.text.isNullOrEmpty()) {

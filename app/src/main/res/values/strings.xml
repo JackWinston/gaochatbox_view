@@ -73,4 +73,13 @@
     <string name="new_chat_confirm_message">当前对话内容将丢失，确定要新建会话吗？</string>
     <string name="select_model_title">选择模型</string>
     <string name="no_model_available">暂无可用模型，请先在设置中添加</string>
+
+    <!-- Chat items -->
+    <string name="chat_system_prompt_label">系统提示词</string>
+    <string name="chat_thinking">正在思考中…</string>
+    <string name="chat_streaming_responding">正在回答中…</string>
+    <string name="chat_streaming_done">回答完成</string>
+    <string name="chat_expand">展开</string>
+    <string name="chat_copy">复制</string>
+    <string name="chat_copy_success">已复制到剪贴板</string>
 </resources>

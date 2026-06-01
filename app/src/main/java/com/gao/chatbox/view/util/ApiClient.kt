@@ -21,6 +21,16 @@ object ApiClient {
             .build()
     }
 
+    private val streamingOkHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.MINUTES)
+            .addInterceptor(HttpLoggingInterceptor().apply {
+                level = HttpLoggingInterceptor.Level.BASIC
+            })
+            .build()
+    }
+
     private fun buildOpenAiApi(baseUrl: String): OpenAiApi {
         val normalized = normalizeOpenAiUrl(baseUrl)
         return Retrofit.Builder()
@@ -31,11 +41,31 @@ object ApiClient {
             .create(OpenAiApi::class.java)
     }
 
+    fun buildOpenAiApiStreaming(baseUrl: String): OpenAiApi {
+        val normalized = normalizeOpenAiUrl(baseUrl)
+        return Retrofit.Builder()
+            .baseUrl(normalized)
+            .client(streamingOkHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(OpenAiApi::class.java)
+    }
+
     fun buildAnthropicApi(baseUrl: String): AnthropicApi {
         val normalized = normalizeAnthropicUrl(baseUrl)
         return Retrofit.Builder()
             .baseUrl(normalized)
             .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(AnthropicApi::class.java)
+    }
+
+    fun buildAnthropicApiStreaming(baseUrl: String): AnthropicApi {
+        val normalized = normalizeAnthropicUrl(baseUrl)
+        return Retrofit.Builder()
+            .baseUrl(normalized)
+            .client(streamingOkHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(AnthropicApi::class.java)
