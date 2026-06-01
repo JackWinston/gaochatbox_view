@@ -1,14 +1,13 @@
 package com.gao.chatbox.view.ui.home.settings
 
-import android.view.LayoutInflater
+import android.content.Context
 import android.view.View
 import android.view.ViewGroup
-import androidx.recyclerview.widget.RecyclerView
+import com.chad.library.adapter4.BaseMultiItemAdapter
+import com.chad.library.adapter4.viewholder.QuickViewHolder
 import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.model.ModelConfig
-import com.gao.chatbox.view.databinding.ItemAddModelBinding
-import com.gao.chatbox.view.databinding.ItemModelConfigBinding
-import com.gao.chatbox.view.databinding.ItemSectionHeaderBinding
+import com.google.android.material.materialswitch.MaterialSwitch
 
 class SettingsAdapter(
     private val onModelClick: (ModelConfig) -> Unit,
@@ -16,28 +15,27 @@ class SettingsAdapter(
     private val onAddModelClick: () -> Unit,
     private val onUiSwitchChanged: (UiSetting, Boolean) -> Unit,
     private val onCapabilitySwitchChanged: (CapabilitySetting, Boolean) -> Unit
-) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+) : BaseMultiItemAdapter<SettingsAdapter.SettingsItem>() {
 
     companion object {
-        private const val TYPE_HEADER = 0
-        private const val TYPE_MODEL_ITEM = 1
-        private const val TYPE_ADD_MODEL = 2
+        const val TYPE_HEADER = 0
+        const val TYPE_MODEL_ITEM = 1
+        const val TYPE_ADD_MODEL = 2
     }
 
     enum class Section { MODEL, UI, CAPABILITY }
     enum class UiSetting { CHAR_COUNT, TOKEN_COUNT, MODEL_NAME, TIMESTAMP }
     enum class CapabilitySetting { WEB_SEARCH }
 
-    data class SettingsItem(
-        val type: Int,
-        val section: Section? = null,
-        val modelConfig: ModelConfig? = null,
-        val uiSetting: UiSetting? = null,
-        val capabilitySetting: CapabilitySetting? = null
-    )
+    sealed class SettingsItem {
+        class Header(val section: Section) : SettingsItem()
+        class Model(val config: ModelConfig) : SettingsItem()
+        class AddModel : SettingsItem()
+        class UiSwitch(val setting: UiSetting) : SettingsItem()
+        class CapabilitySwitch(val setting: CapabilitySetting) : SettingsItem()
+    }
 
     private val expandedSections = mutableSetOf(Section.MODEL)
-    private var items = listOf<SettingsItem>()
     private var models = listOf<ModelConfig>()
 
     var showCharCount = false
@@ -45,6 +43,148 @@ class SettingsAdapter(
     var showModelName = false
     var showTimestamp = false
     var webSearchEnabled = false
+
+    init {
+        onItemViewType { position, list ->
+            when (list[position]) {
+                is SettingsItem.Header -> TYPE_HEADER
+                is SettingsItem.Model -> TYPE_MODEL_ITEM
+                is SettingsItem.AddModel -> TYPE_ADD_MODEL
+                is SettingsItem.UiSwitch -> TYPE_HEADER
+                is SettingsItem.CapabilitySwitch -> TYPE_HEADER
+            }
+        }
+
+        addItemType(TYPE_HEADER, object : OnMultiItem<SettingsItem, QuickViewHolder>() {
+            override fun onCreate(context: Context, parent: ViewGroup, viewType: Int): QuickViewHolder {
+                return QuickViewHolder(R.layout.item_section_header, parent)
+            }
+
+            override fun onBind(holder: QuickViewHolder, position: Int, item: SettingsItem?) {
+                when (item) {
+                    is SettingsItem.Header -> bindHeader(holder, item)
+                    is SettingsItem.UiSwitch -> bindUiSwitch(holder, item)
+                    is SettingsItem.CapabilitySwitch -> bindCapabilitySwitch(holder, item)
+                    else -> {}
+                }
+            }
+        })
+
+        addItemType(TYPE_MODEL_ITEM, object : OnMultiItem<SettingsItem, QuickViewHolder>() {
+            override fun onCreate(context: Context, parent: ViewGroup, viewType: Int): QuickViewHolder {
+                return QuickViewHolder(R.layout.item_model_config, parent)
+            }
+
+            override fun onBind(holder: QuickViewHolder, position: Int, item: SettingsItem?) {
+                val config = (item as? SettingsItem.Model)?.config ?: return
+                holder.setText(R.id.tv_model_tag, config.tag)
+                holder.setText(R.id.tv_model_url, config.apiUrl)
+                holder.setGone(R.id.chip_default, !config.isDefault)
+
+                holder.itemView.setOnClickListener { onModelClick(config) }
+                holder.itemView.setOnLongClickListener { view ->
+                    onModelLongClick(view, config)
+                    true
+                }
+            }
+        })
+
+        addItemType(TYPE_ADD_MODEL, object : OnMultiItem<SettingsItem, QuickViewHolder>() {
+            override fun onCreate(context: Context, parent: ViewGroup, viewType: Int): QuickViewHolder {
+                return QuickViewHolder(R.layout.item_add_model, parent)
+            }
+
+            override fun onBind(holder: QuickViewHolder, position: Int, item: SettingsItem?) {
+                holder.itemView.setOnClickListener { onAddModelClick() }
+            }
+        })
+    }
+
+    private fun bindHeader(holder: QuickViewHolder, item: SettingsItem.Header) {
+        val section = item.section
+        val isExpanded = expandedSections.contains(section)
+
+        holder.setText(R.id.tv_section_title, when (section) {
+            Section.MODEL -> holder.itemView.context.getString(R.string.section_model)
+            Section.UI -> holder.itemView.context.getString(R.string.section_ui)
+            Section.CAPABILITY -> holder.itemView.context.getString(R.string.section_capability)
+        })
+
+        holder.getView<View>(R.id.iv_expand).animate()
+            .rotation(if (isExpanded) 180f else 0f)
+            .setDuration(200)
+            .start()
+
+        holder.setVisible(R.id.iv_expand, true)
+        holder.setGone(R.id.switch_section, true)
+        holder.itemView.setOnClickListener { toggleSection(section) }
+    }
+
+    private fun bindUiSwitch(holder: QuickViewHolder, item: SettingsItem.UiSwitch) {
+        holder.setGone(R.id.iv_expand, true)
+        holder.setGone(R.id.switch_section, false)
+
+        val switchView = holder.getView<MaterialSwitch>(R.id.switch_section)
+        switchView.setOnCheckedChangeListener(null)
+
+        when (item.setting) {
+            UiSetting.CHAR_COUNT -> {
+                holder.setText(R.id.tv_section_title, holder.itemView.context.getString(R.string.ui_show_char_count))
+                switchView.isChecked = showCharCount
+                switchView.setOnCheckedChangeListener { _, isChecked ->
+                    showCharCount = isChecked
+                    onUiSwitchChanged(UiSetting.CHAR_COUNT, isChecked)
+                }
+            }
+            UiSetting.TOKEN_COUNT -> {
+                holder.setText(R.id.tv_section_title, holder.itemView.context.getString(R.string.ui_show_token_count))
+                switchView.isChecked = showTokenCount
+                switchView.setOnCheckedChangeListener { _, isChecked ->
+                    showTokenCount = isChecked
+                    onUiSwitchChanged(UiSetting.TOKEN_COUNT, isChecked)
+                }
+            }
+            UiSetting.MODEL_NAME -> {
+                holder.setText(R.id.tv_section_title, holder.itemView.context.getString(R.string.ui_show_model_name))
+                switchView.isChecked = showModelName
+                switchView.setOnCheckedChangeListener { _, isChecked ->
+                    showModelName = isChecked
+                    onUiSwitchChanged(UiSetting.MODEL_NAME, isChecked)
+                }
+            }
+            UiSetting.TIMESTAMP -> {
+                holder.setText(R.id.tv_section_title, holder.itemView.context.getString(R.string.ui_show_timestamp))
+                switchView.isChecked = showTimestamp
+                switchView.setOnCheckedChangeListener { _, isChecked ->
+                    showTimestamp = isChecked
+                    onUiSwitchChanged(UiSetting.TIMESTAMP, isChecked)
+                }
+            }
+        }
+
+        holder.itemView.setOnClickListener(null)
+    }
+
+    private fun bindCapabilitySwitch(holder: QuickViewHolder, item: SettingsItem.CapabilitySwitch) {
+        holder.setGone(R.id.iv_expand, true)
+        holder.setGone(R.id.switch_section, false)
+
+        val switchView = holder.getView<MaterialSwitch>(R.id.switch_section)
+        switchView.setOnCheckedChangeListener(null)
+
+        when (item.setting) {
+            CapabilitySetting.WEB_SEARCH -> {
+                holder.setText(R.id.tv_section_title, holder.itemView.context.getString(R.string.capability_web_search))
+                switchView.isChecked = webSearchEnabled
+                switchView.setOnCheckedChangeListener { _, isChecked ->
+                    webSearchEnabled = isChecked
+                    onCapabilitySwitchChanged(CapabilitySetting.WEB_SEARCH, isChecked)
+                }
+            }
+        }
+
+        holder.itemView.setOnClickListener(null)
+    }
 
     fun setModels(newModels: List<ModelConfig>) {
         models = newModels
@@ -55,152 +195,30 @@ class SettingsAdapter(
         val newItems = mutableListOf<SettingsItem>()
 
         // 模型设置
-        newItems.add(SettingsItem(TYPE_HEADER, section = Section.MODEL))
+        newItems.add(SettingsItem.Header(Section.MODEL))
         if (expandedSections.contains(Section.MODEL)) {
             for (model in models) {
-                newItems.add(SettingsItem(TYPE_MODEL_ITEM, modelConfig = model))
+                newItems.add(SettingsItem.Model(model))
             }
-            newItems.add(SettingsItem(TYPE_ADD_MODEL))
+            newItems.add(SettingsItem.AddModel())
         }
 
         // 界面设置
-        newItems.add(SettingsItem(TYPE_HEADER, section = Section.UI))
+        newItems.add(SettingsItem.Header(Section.UI))
         if (expandedSections.contains(Section.UI)) {
-            newItems.add(SettingsItem(TYPE_HEADER, section = Section.UI, uiSetting = UiSetting.CHAR_COUNT))
-            newItems.add(SettingsItem(TYPE_HEADER, section = Section.UI, uiSetting = UiSetting.TOKEN_COUNT))
-            newItems.add(SettingsItem(TYPE_HEADER, section = Section.UI, uiSetting = UiSetting.MODEL_NAME))
-            newItems.add(SettingsItem(TYPE_HEADER, section = Section.UI, uiSetting = UiSetting.TIMESTAMP))
+            newItems.add(SettingsItem.UiSwitch(UiSetting.CHAR_COUNT))
+            newItems.add(SettingsItem.UiSwitch(UiSetting.TOKEN_COUNT))
+            newItems.add(SettingsItem.UiSwitch(UiSetting.MODEL_NAME))
+            newItems.add(SettingsItem.UiSwitch(UiSetting.TIMESTAMP))
         }
 
         // 能力设置
-        newItems.add(SettingsItem(TYPE_HEADER, section = Section.CAPABILITY))
+        newItems.add(SettingsItem.Header(Section.CAPABILITY))
         if (expandedSections.contains(Section.CAPABILITY)) {
-            newItems.add(SettingsItem(TYPE_HEADER, section = Section.CAPABILITY, capabilitySetting = CapabilitySetting.WEB_SEARCH))
+            newItems.add(SettingsItem.CapabilitySwitch(CapabilitySetting.WEB_SEARCH))
         }
 
-        items = newItems
-        notifyDataSetChanged()
-    }
-
-    override fun getItemViewType(position: Int): Int = items[position].type
-
-    override fun getItemCount(): Int = items.size
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-        val inflater = LayoutInflater.from(parent.context)
-        return when (viewType) {
-            TYPE_HEADER -> HeaderViewHolder(ItemSectionHeaderBinding.inflate(inflater, parent, false))
-            TYPE_MODEL_ITEM -> ModelViewHolder(ItemModelConfigBinding.inflate(inflater, parent, false))
-            TYPE_ADD_MODEL -> AddViewHolder(ItemAddModelBinding.inflate(inflater, parent, false))
-            else -> throw IllegalArgumentException("Unknown view type: $viewType")
-        }
-    }
-
-    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        val item = items[position]
-        when (holder) {
-            is HeaderViewHolder -> bindHeader(holder, item)
-            is ModelViewHolder -> bindModel(holder, item)
-            is AddViewHolder -> bindAdd(holder)
-        }
-    }
-
-    private fun bindHeader(holder: HeaderViewHolder, item: SettingsItem) {
-        val section = item.section ?: return
-        val isExpanded = expandedSections.contains(section)
-
-        holder.binding.tvSectionTitle.text = when (section) {
-            Section.MODEL -> holder.itemView.context.getString(R.string.section_model)
-            Section.UI -> holder.itemView.context.getString(R.string.section_ui)
-            Section.CAPABILITY -> holder.itemView.context.getString(R.string.section_capability)
-        }
-
-        holder.binding.ivExpand.animate()
-            .rotation(if (isExpanded) 180f else 0f)
-            .setDuration(200)
-            .start()
-
-        if (item.uiSetting != null || item.capabilitySetting != null) {
-            // 子项：显示开关，隐藏箭头
-            holder.binding.ivExpand.visibility = View.GONE
-            holder.binding.switchSection.visibility = View.VISIBLE
-
-            when (item.uiSetting) {
-                UiSetting.CHAR_COUNT -> {
-                    holder.binding.tvSectionTitle.text = holder.itemView.context.getString(R.string.ui_show_char_count)
-                    holder.binding.switchSection.isChecked = showCharCount
-                    holder.binding.switchSection.setOnCheckedChangeListener { _, isChecked ->
-                        showCharCount = isChecked
-                        onUiSwitchChanged(UiSetting.CHAR_COUNT, isChecked)
-                    }
-                }
-                UiSetting.TOKEN_COUNT -> {
-                    holder.binding.tvSectionTitle.text = holder.itemView.context.getString(R.string.ui_show_token_count)
-                    holder.binding.switchSection.isChecked = showTokenCount
-                    holder.binding.switchSection.setOnCheckedChangeListener { _, isChecked ->
-                        showTokenCount = isChecked
-                        onUiSwitchChanged(UiSetting.TOKEN_COUNT, isChecked)
-                    }
-                }
-                UiSetting.MODEL_NAME -> {
-                    holder.binding.tvSectionTitle.text = holder.itemView.context.getString(R.string.ui_show_model_name)
-                    holder.binding.switchSection.isChecked = showModelName
-                    holder.binding.switchSection.setOnCheckedChangeListener { _, isChecked ->
-                        showModelName = isChecked
-                        onUiSwitchChanged(UiSetting.MODEL_NAME, isChecked)
-                    }
-                }
-                UiSetting.TIMESTAMP -> {
-                    holder.binding.tvSectionTitle.text = holder.itemView.context.getString(R.string.ui_show_timestamp)
-                    holder.binding.switchSection.isChecked = showTimestamp
-                    holder.binding.switchSection.setOnCheckedChangeListener { _, isChecked ->
-                        showTimestamp = isChecked
-                        onUiSwitchChanged(UiSetting.TIMESTAMP, isChecked)
-                    }
-                }
-                null -> {}
-            }
-
-            when (item.capabilitySetting) {
-                CapabilitySetting.WEB_SEARCH -> {
-                    holder.binding.tvSectionTitle.text = holder.itemView.context.getString(R.string.capability_web_search)
-                    holder.binding.switchSection.isChecked = webSearchEnabled
-                    holder.binding.switchSection.setOnCheckedChangeListener { _, isChecked ->
-                        webSearchEnabled = isChecked
-                        onCapabilitySwitchChanged(CapabilitySetting.WEB_SEARCH, isChecked)
-                    }
-                }
-                null -> {}
-            }
-
-            holder.itemView.setOnClickListener(null)
-        } else {
-            // 主标题：显示箭头，隐藏开关
-            holder.binding.ivExpand.visibility = View.VISIBLE
-            holder.binding.switchSection.visibility = View.GONE
-            holder.binding.switchSection.setOnCheckedChangeListener(null)
-
-            holder.itemView.setOnClickListener {
-                toggleSection(section)
-            }
-        }
-    }
-
-    private fun bindModel(holder: ModelViewHolder, item: SettingsItem) {
-        val config = item.modelConfig ?: return
-        holder.binding.tvModelTag.text = config.tag
-        holder.binding.tvModelUrl.text = config.apiUrl
-        holder.binding.chipDefault.visibility = if (config.isDefault) View.VISIBLE else View.GONE
-
-        holder.itemView.setOnClickListener { onModelClick(config) }
-        holder.itemView.setOnLongClickListener { view ->
-            onModelLongClick(view, config)
-            true
-        }
-    }
-
-    private fun bindAdd(holder: AddViewHolder) {
-        holder.itemView.setOnClickListener { onAddModelClick() }
+        submitList(newItems)
     }
 
     private fun toggleSection(section: Section) {
@@ -211,13 +229,4 @@ class SettingsAdapter(
         }
         rebuildItems()
     }
-
-    inner class HeaderViewHolder(val binding: ItemSectionHeaderBinding) :
-        RecyclerView.ViewHolder(binding.root)
-
-    inner class ModelViewHolder(val binding: ItemModelConfigBinding) :
-        RecyclerView.ViewHolder(binding.root)
-
-    inner class AddViewHolder(val binding: ItemAddModelBinding) :
-        RecyclerView.ViewHolder(binding.root)
 }

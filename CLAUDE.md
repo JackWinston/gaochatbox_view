@@ -2,6 +2,8 @@
 
 Android AI chat application supporting multiple models, character personas, and local-first data storage.
 
+## 用中文回复问题
+
 ## Tech Stack
 
 - **Language**: Kotlin (AGP 9.2.1 built-in Kotlin support)

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.widget.ExpandableListAdapter
 import android.widget.ExpandableListView
 import android.widget.SimpleExpandableListAdapter
@@ -149,7 +150,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     // region ChatAdapterListener
 
     override fun onSystemPromptToggle(position: Int) {
-        val items = chatAdapter.currentList.toMutableList()
+        val items = chatAdapter.items.toMutableList()
         val item = items[position] as? ChatItem.SystemPrompt ?: return
         items[position] = item.copy(isExpanded = !item.isExpanded)
         chatAdapter.submitList(items)
@@ -171,13 +172,17 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
         binding.etInput.text?.clear()
 
+        // 关闭键盘
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(binding.etInput.windowToken, 0)
+
         val config = ModelConfigManager.getDefault()
         if (config == null) {
             showErrorMessage(getString(R.string.no_model_available))
             return
         }
 
-        val items = chatAdapter.currentList.toMutableList()
+        val items = chatAdapter.items.toMutableList()
         val now = System.currentTimeMillis()
 
         // Insert timestamp if needed
@@ -261,11 +266,8 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         val holder = chatAdapter.findStreamingViewHolder(binding.rvMessages)
         if (holder != null) {
             holder.updateStreamingContent(content)
-            if (holder.isExpanded) {
-                val pos = holder.adapterPosition
-                if (pos != RecyclerView.NO_POSITION) {
-                    binding.rvMessages.smoothScrollToPosition(pos)
-                }
+            if (shouldAutoScroll()) {
+                binding.rvMessages.scrollToPosition(chatAdapter.itemCount - 1)
             }
         }
     }
@@ -276,7 +278,8 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         // Update ViewHolder directly one last time
         updateStreamingUI(accumulatedContent)
 
-        val items = chatAdapter.currentList.toMutableList()
+        val scrollNeeded = shouldAutoScroll()
+        val items = chatAdapter.items.toMutableList()
         val idx = items.indexOfFirst { it is ChatItem.StreamingMessage }
         if (idx >= 0) {
             items[idx] = ChatItem.AssistantMessage(
@@ -285,7 +288,9 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                 modelName = selectedModelName.ifEmpty { null }
             )
             chatAdapter.submitList(items)
-            scrollToBottom()
+            if (scrollNeeded) {
+                binding.rvMessages.scrollToPosition(chatAdapter.itemCount - 1)
+            }
         }
 
         isStreaming = false
@@ -294,7 +299,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     }
 
     private fun showErrorMessage(message: String) {
-        val items = chatAdapter.currentList.toMutableList()
+        val items = chatAdapter.items.toMutableList()
         val idx = items.indexOfFirst { it is ChatItem.StreamingMessage }
         if (idx >= 0) {
             items.removeAt(idx)
@@ -317,7 +322,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     private fun scrollToBottom() {
         val itemCount = chatAdapter.itemCount
         if (itemCount > 0) {
-            binding.rvMessages.smoothScrollToPosition(itemCount - 1)
+            binding.rvMessages.scrollToPosition(itemCount - 1)
         }
     }
 
@@ -333,7 +338,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     // region New Chat
 
     private fun onNewChat() {
-        if (chatAdapter.currentList.none { it is ChatItem.UserMessage || it is ChatItem.AssistantMessage }) {
+        if (chatAdapter.items.none { it is ChatItem.UserMessage || it is ChatItem.AssistantMessage }) {
             restartChat()
             return
         }

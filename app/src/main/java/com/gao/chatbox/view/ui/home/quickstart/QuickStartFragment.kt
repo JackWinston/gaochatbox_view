@@ -52,22 +52,24 @@ class QuickStartFragment : Fragment() {
 
     private fun refreshList() {
         val prompts = SystemPromptManager.getAll()
-        adapter = SystemPromptAdapter(
-            prompts = prompts,
-            onPromptClick = { prompt ->
-                ChatActivity.start(requireContext(), prompt.content, prompt.tag)
-            },
-            onAddClick = {
-                showAddDialog()
-            },
-            onEditPrompt = { prompt ->
-                showEditDialog(prompt)
-            },
-            onDeletePrompt = { prompt ->
-                showDeleteConfirm(prompt)
-            }
-        )
-        binding.rvPrompts.adapter = adapter
+        if (adapter == null) {
+            adapter = SystemPromptAdapter(
+                onPromptClick = { prompt ->
+                    ChatActivity.start(requireContext(), prompt.content, prompt.tag)
+                },
+                onAddClick = {
+                    showAddDialog()
+                },
+                onEditPrompt = { prompt ->
+                    showEditDialog(prompt)
+                },
+                onDeletePrompt = { prompt ->
+                    showDeleteConfirm(prompt)
+                }
+            )
+            binding.rvPrompts.adapter = adapter
+        }
+        adapter?.submitList(SystemPromptAdapter.buildItems(prompts))
     }
 
     private fun showAddDialog() {

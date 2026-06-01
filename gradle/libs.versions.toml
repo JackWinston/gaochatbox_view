@@ -15,6 +15,7 @@ okhttp = "4.12.0"
 retrofit = "2.11.0"
 room = "2.7.1"
 markwon = "4.6.2"
+brvah = "4.4.0"
 kotlin = "2.2.10"
 
 [libraries]
@@ -40,6 +41,7 @@ markwon-core = { group = "io.noties.markwon", name = "core", version.ref = "mark
 markwon-ext-tables = { group = "io.noties.markwon", name = "ext-tables", version.ref = "markwon" }
 markwon-linkify = { group = "io.noties.markwon", name = "linkify", version.ref = "markwon" }
 markwon-ext-strikethrough = { group = "io.noties.markwon", name = "ext-strikethrough", version.ref = "markwon" }
+brvah = { group = "io.github.cymchad", name = "BaseRecyclerViewAdapterHelper4", version.ref = "brvah" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

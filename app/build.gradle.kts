@@ -59,6 +59,7 @@ dependencies {
     implementation(libs.markwon.ext.tables)
     implementation(libs.markwon.linkify)
     implementation(libs.markwon.ext.strikethrough)
+    implementation(libs.brvah)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
