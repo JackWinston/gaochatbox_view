@@ -3,4 +3,16 @@
     <string name="tab_quick_start">快速开始</string>
     <string name="tab_history">历史</string>
     <string name="tab_settings">设置</string>
+
+    <string name="add_prompt">添加提示词</string>
+    <string name="edit_prompt">修改</string>
+    <string name="delete_prompt">删除</string>
+    <string name="hint_tag">标签名称</string>
+    <string name="hint_content">系统提示词内容</string>
+    <string name="dialog_title_add">新增提示词</string>
+    <string name="dialog_title_edit">编辑提示词</string>
+    <string name="dialog_confirm">确定</string>
+    <string name="dialog_cancel">取消</string>
+    <string name="delete_confirm_title">确认删除</string>
+    <string name="delete_confirm_message">确定要删除这个提示词吗？</string>
 </resources>
