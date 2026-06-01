@@ -11,6 +11,8 @@ constraintlayout = "2.2.1"
 flexbox = "3.0.0"
 gson = "2.14.0"
 mmkv = "2.4.0"
+okhttp = "4.12.0"
+retrofit = "2.11.0"
 kotlin = "2.2.10"
 
 [libraries]
@@ -25,6 +27,10 @@ androidx-constraintlayout = { group = "androidx.constraintlayout", name = "const
 flexbox = { group = "com.google.android.flexbox", name = "flexbox", version.ref = "flexbox" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 mmkv = { group = "com.tencent", name = "mmkv", version.ref = "mmkv" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+retrofit-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
