@@ -45,6 +45,7 @@
         <!-- Status bar & navigation bar -->
         <item name="android:statusBarColor">@color/md_dark_surface</item>
         <item name="android:navigationBarColor">@color/md_dark_surface</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
 </resources>

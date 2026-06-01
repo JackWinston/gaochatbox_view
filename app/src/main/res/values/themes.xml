@@ -45,6 +45,7 @@
         <!-- Status bar & navigation bar -->
         <item name="android:statusBarColor">@color/md_surface</item>
         <item name="android:navigationBarColor">@color/md_surface</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 
 </resources>
