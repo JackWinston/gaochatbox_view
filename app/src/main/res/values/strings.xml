@@ -43,6 +43,7 @@
     <string name="msg_fetch_success">成功获取 %d 个模型</string>
     <string name="msg_fetch_failed">获取失败: %s</string>
     <string name="msg_enter_url_and_key">请先输入 API URL 和密钥</string>
+    <string name="msg_fetch_first">请先获取模型列表</string>
     <string name="delete_model_confirm_message">确定要删除这个模型配置吗？</string>
     <string name="msg_name_required">请输入模型名称</string>
 

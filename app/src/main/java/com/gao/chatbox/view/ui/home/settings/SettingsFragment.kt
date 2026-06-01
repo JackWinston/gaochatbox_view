@@ -4,8 +4,6 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ArrayAdapter
-import android.widget.AutoCompleteTextView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.ProgressBar
@@ -139,11 +137,11 @@ class SettingsFragment : Fragment() {
             .inflate(R.layout.dialog_model_config, null)
 
         val etName = dialogView.findViewById<TextInputEditText>(R.id.et_name)
-        val spinnerApiType = dialogView.findViewById<AutoCompleteTextView>(R.id.spinner_api_type)
+        val etApiType = dialogView.findViewById<TextInputEditText>(R.id.et_api_type)
         val etApiUrl = dialogView.findViewById<TextInputEditText>(R.id.et_api_url)
         val etApiKey = dialogView.findViewById<TextInputEditText>(R.id.et_api_key)
         val layoutOpenaiModel = dialogView.findViewById<LinearLayout>(R.id.layout_openai_model)
-        val spinnerDefaultModel = dialogView.findViewById<AutoCompleteTextView>(R.id.spinner_default_model)
+        val etDefaultModel = dialogView.findViewById<TextInputEditText>(R.id.et_default_model)
         val btnFetchModels = dialogView.findViewById<MaterialButton>(R.id.btn_fetch_models)
         val progressFetch = dialogView.findViewById<ProgressBar>(R.id.progress_fetch)
         val tilAnthropicModel = dialogView.findViewById<TextInputLayout>(R.id.til_anthropic_model)
@@ -153,16 +151,20 @@ class SettingsFragment : Fragment() {
         val sliderTemperature = dialogView.findViewById<Slider>(R.id.slider_temperature)
         val switchDefault = dialogView.findViewById<MaterialSwitch>(R.id.switch_default)
 
-        // 已获取的模型列表（OpenAI 模式用于保存时写入 ModelConfig.models）
+        // 状态变量
         var fetchedModels = mutableListOf<String>()
+        var selectedApiType = existing?.apiType ?: API_TYPE_OPENAI
+        var selectedDefaultModel = existing?.defaultModel ?: ""
 
-        // API 类型切换逻辑
-        val apiTypes = listOf(API_TYPE_OPENAI, API_TYPE_ANTHROPIC)
-        val apiTypeAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line,
-            listOf(getString(R.string.api_type_openai), getString(R.string.api_type_anthropic)))
-        spinnerApiType.setAdapter(apiTypeAdapter)
+        val apiTypeLabels = listOf(
+            getString(R.string.api_type_openai),
+            getString(R.string.api_type_anthropic)
+        )
+        val apiTypeValues = listOf(API_TYPE_OPENAI, API_TYPE_ANTHROPIC)
 
         fun updateUiForApiType(apiType: String) {
+            selectedApiType = apiType
+            etApiType.setText(if (apiType == API_TYPE_ANTHROPIC) apiTypeLabels[1] else apiTypeLabels[0])
             if (apiType == API_TYPE_OPENAI) {
                 layoutOpenaiModel.visibility = View.VISIBLE
                 btnFetchModels.visibility = View.VISIBLE
@@ -176,20 +178,43 @@ class SettingsFragment : Fragment() {
             }
         }
 
-        spinnerApiType.setOnItemClickListener { _, _, position, _ ->
-            val selectedType = apiTypes[position]
-            updateUiForApiType(selectedType)
-            // 切换时填入默认 URL
-            if (etApiUrl.text.isNullOrEmpty()) {
-                when (selectedType) {
-                    API_TYPE_OPENAI -> etApiUrl.setText("https://api.openai.com/v1")
-                    API_TYPE_ANTHROPIC -> etApiUrl.setText("https://api.anthropic.com/v1")
+        // API 类型选择（弹窗）
+        etApiType.setOnClickListener {
+            val currentIndex = apiTypeValues.indexOf(selectedApiType).coerceAtLeast(0)
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.label_api_type)
+                .setSingleChoiceItems(apiTypeLabels.toTypedArray(), currentIndex) { dialog, which ->
+                    val newType = apiTypeValues[which]
+                    updateUiForApiType(newType)
+                    if (etApiUrl.text.isNullOrEmpty()) {
+                        when (newType) {
+                            API_TYPE_OPENAI -> etApiUrl.setText("https://api.openai.com/v1")
+                            API_TYPE_ANTHROPIC -> etApiUrl.setText("https://api.anthropic.com/v1")
+                        }
+                    }
+                    if (newType == API_TYPE_ANTHROPIC && etContextLimit.text.isNullOrEmpty()) {
+                        etContextLimit.setText("200000")
+                    }
+                    dialog.dismiss()
                 }
+                .show()
+        }
+
+        // 默认模型选择（弹窗，仅 OpenAI）
+        etDefaultModel.setOnClickListener {
+            if (fetchedModels.isEmpty()) {
+                Toast.makeText(requireContext(), R.string.msg_fetch_first, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
-            // 切换到 Anthropic 时填入默认上下文限制
-            if (selectedType == API_TYPE_ANTHROPIC && etContextLimit.text.isNullOrEmpty()) {
-                etContextLimit.setText("200000")
-            }
+            val currentIndex = fetchedModels.indexOf(selectedDefaultModel).coerceAtLeast(0)
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.label_default_model)
+                .setSingleChoiceItems(fetchedModels.toTypedArray(), currentIndex) { dialog, which ->
+                    selectedDefaultModel = fetchedModels[which]
+                    etDefaultModel.setText(selectedDefaultModel)
+                    dialog.dismiss()
+                }
+                .show()
         }
 
         // 预填充已有数据
@@ -202,19 +227,14 @@ class SettingsFragment : Fragment() {
             switchDefault.isChecked = existing.isDefault
             tvTemperatureLabel.text = getString(R.string.label_temperature, existing.temperature)
 
-            // 设置 API 类型
-            val apiTypeIndex = apiTypes.indexOf(existing.apiType).coerceAtLeast(0)
-            spinnerApiType.setText(apiTypeAdapter.getItem(apiTypeIndex), false)
             updateUiForApiType(existing.apiType)
 
             if (existing.apiType == API_TYPE_OPENAI) {
                 if (existing.models.isNotEmpty()) {
                     fetchedModels.addAll(existing.models)
-                    val spAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, existing.models)
-                    spinnerDefaultModel.setAdapter(spAdapter)
-                    if (existing.defaultModel.isNotEmpty()) {
-                        spinnerDefaultModel.setText(existing.defaultModel, false)
-                    }
+                }
+                if (existing.defaultModel.isNotEmpty()) {
+                    etDefaultModel.setText(existing.defaultModel)
                 }
             } else {
                 etAnthropicModel.setText(existing.defaultModel)
@@ -222,8 +242,6 @@ class SettingsFragment : Fragment() {
         } else {
             sliderTemperature.value = 70f
             tvTemperatureLabel.text = getString(R.string.label_temperature, 0.7f)
-            // 默认选中 OpenAI
-            spinnerApiType.setText(apiTypeAdapter.getItem(0), false)
             updateUiForApiType(API_TYPE_OPENAI)
         }
 
@@ -254,10 +272,9 @@ class SettingsFragment : Fragment() {
                     fetchedModels.clear()
                     fetchedModels.addAll(modelIds)
 
-                    val spAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, modelIds)
-                    spinnerDefaultModel.setAdapter(spAdapter)
                     if (modelIds.isNotEmpty()) {
-                        spinnerDefaultModel.setText(modelIds[0], false)
+                        selectedDefaultModel = modelIds[0]
+                        etDefaultModel.setText(selectedDefaultModel)
                     }
 
                     if (etContextLimit.text.isNullOrEmpty()) {
@@ -283,8 +300,6 @@ class SettingsFragment : Fragment() {
                 val name = etName.text?.toString()?.trim() ?: ""
                 if (name.isEmpty()) return@setPositiveButton
 
-                val currentApiType = if (spinnerApiType.text.toString() == getString(R.string.api_type_anthropic))
-                    API_TYPE_ANTHROPIC else API_TYPE_OPENAI
                 val apiUrl = etApiUrl.text?.toString()?.trim() ?: ""
                 val apiKey = etApiKey.text?.toString()?.trim() ?: ""
                 val contextLimit = etContextLimit.text?.toString()?.toIntOrNull() ?: 4096
@@ -294,8 +309,8 @@ class SettingsFragment : Fragment() {
                 val defaultModel: String
                 val models: List<String>
 
-                if (currentApiType == API_TYPE_OPENAI) {
-                    defaultModel = spinnerDefaultModel.text?.toString()?.trim() ?: ""
+                if (selectedApiType == API_TYPE_OPENAI) {
+                    defaultModel = selectedDefaultModel
                     models = fetchedModels.toList()
                 } else {
                     defaultModel = etAnthropicModel.text?.toString()?.trim() ?: ""
@@ -305,7 +320,7 @@ class SettingsFragment : Fragment() {
                 val config = ModelConfig(
                     id = existing?.id ?: java.util.UUID.randomUUID().toString(),
                     name = name,
-                    apiType = currentApiType,
+                    apiType = selectedApiType,
                     apiUrl = apiUrl,
                     apiKey = apiKey,
                     models = models,
