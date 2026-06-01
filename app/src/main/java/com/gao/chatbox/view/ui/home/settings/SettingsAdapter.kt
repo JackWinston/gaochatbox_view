@@ -197,7 +197,7 @@ class SettingsAdapter(
 
     private fun bindModel(holder: ModelViewHolder, item: SettingsItem) {
         val config = item.modelConfig ?: return
-        holder.tvName.text = config.name
+        holder.tvTag.text = config.tag
         holder.tvUrl.text = config.apiUrl
         holder.chipDefault.visibility = if (config.isDefault) View.VISIBLE else View.GONE
 
@@ -228,7 +228,7 @@ class SettingsAdapter(
     }
 
     inner class ModelViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val tvName: TextView = itemView.findViewById(R.id.tv_model_name)
+        val tvTag: TextView = itemView.findViewById(R.id.tv_model_tag)
         val tvUrl: TextView = itemView.findViewById(R.id.tv_model_url)
         val chipDefault: Chip = itemView.findViewById(R.id.chip_default)
     }

@@ -27,6 +27,7 @@
     <!-- Model dialog -->
     <string name="dialog_title_add_model">添加模型</string>
     <string name="dialog_title_edit_model">编辑模型</string>
+    <string name="hint_model_tag">模型标签</string>
     <string name="hint_model_name">模型名称</string>
     <string name="hint_api_url">API URL</string>
     <string name="hint_api_key">API 密钥</string>
@@ -67,4 +68,9 @@
     <string name="delete_conversation_confirm_message">确定要删除这个对话吗？</string>
     <string name="chat_role_user">用户</string>
     <string name="chat_role_assistant">助手</string>
+    <string name="btn_web_search">联网搜索</string>
+    <string name="new_chat_confirm_title">新建会话</string>
+    <string name="new_chat_confirm_message">当前对话内容将丢失，确定要新建会话吗？</string>
+    <string name="select_model_title">选择模型</string>
+    <string name="no_model_available">暂无可用模型，请先在设置中添加</string>
 </resources>

@@ -136,7 +136,7 @@ class SettingsFragment : Fragment() {
         val dialogView = LayoutInflater.from(requireContext())
             .inflate(R.layout.dialog_model_config, null)
 
-        val etName = dialogView.findViewById<TextInputEditText>(R.id.et_name)
+        val etTag = dialogView.findViewById<TextInputEditText>(R.id.et_name)
         val etApiType = dialogView.findViewById<TextInputEditText>(R.id.et_api_type)
         val etApiUrl = dialogView.findViewById<TextInputEditText>(R.id.et_api_url)
         val etApiKey = dialogView.findViewById<TextInputEditText>(R.id.et_api_key)
@@ -219,7 +219,7 @@ class SettingsFragment : Fragment() {
 
         // 预填充已有数据
         if (existing != null) {
-            etName.setText(existing.name)
+            etTag.setText(existing.tag)
             etApiUrl.setText(existing.apiUrl)
             etApiKey.setText(existing.apiKey)
             etContextLimit.setText(existing.contextLimit.toString())
@@ -297,8 +297,8 @@ class SettingsFragment : Fragment() {
             .setTitle(titleRes)
             .setView(dialogView)
             .setPositiveButton(R.string.dialog_confirm) { _, _ ->
-                val name = etName.text?.toString()?.trim() ?: ""
-                if (name.isEmpty()) return@setPositiveButton
+                val tag = etTag.text?.toString()?.trim() ?: ""
+                if (tag.isEmpty()) return@setPositiveButton
 
                 val apiUrl = etApiUrl.text?.toString()?.trim() ?: ""
                 val apiKey = etApiKey.text?.toString()?.trim() ?: ""
@@ -319,7 +319,7 @@ class SettingsFragment : Fragment() {
 
                 val config = ModelConfig(
                     id = existing?.id ?: java.util.UUID.randomUUID().toString(),
-                    name = name,
+                    tag = tag,
                     apiType = selectedApiType,
                     apiUrl = apiUrl,
                     apiKey = apiKey,

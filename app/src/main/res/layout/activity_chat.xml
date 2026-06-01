@@ -76,32 +76,56 @@
             android:scaleType="centerInside"
             android:src="@drawable/ic_attach_file" />
 
-        <ImageButton
+        <LinearLayout
             android:id="@+id/btn_select_model"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="8dp">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@string/btn_select_model"
+                android:src="@drawable/ic_smart_toy" />
+
+            <TextView
+                android:id="@+id/tv_selected_model"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:maxWidth="120dp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="12sp" />
+
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btn_web_search"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/btn_select_model"
+            android:contentDescription="@string/btn_web_search"
             android:scaleType="centerInside"
-            android:src="@drawable/ic_smart_toy" />
+            android:src="@drawable/ic_public" />
 
         <View
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <com.google.android.material.button.MaterialButton
+        <ImageButton
             android:id="@+id/btn_send"
-            style="@style/Widget.Material3.Button"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:layout_marginEnd="4dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="@string/btn_send"
-            app:icon="@drawable/ic_send"
-            app:iconSize="18dp"
-            app:iconTint="?attr/colorOnPrimary" />
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/btn_send"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_send" />
 
     </LinearLayout>
 

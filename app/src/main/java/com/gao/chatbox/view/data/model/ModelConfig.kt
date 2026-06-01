@@ -4,7 +4,7 @@ import java.util.UUID
 
 data class ModelConfig(
     val id: String = UUID.randomUUID().toString(),
-    val name: String,
+    val tag: String,
     val apiType: String = API_TYPE_OPENAI,
     val apiUrl: String,
     val apiKey: String,
