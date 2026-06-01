@@ -424,7 +424,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                     event.arguments?.let { builder.arguments.append(it) }
                 }
                 is StreamEvent.StreamEnd -> {
-                    if (event.finishReason == "tool_calls" && pendingToolCalls.isNotEmpty() && toolCallRoundCount < 2) {
+                    if (event.finishReason == "tool_calls" && pendingToolCalls.isNotEmpty() && toolCallRoundCount < 5) {
                         toolCallRoundCount++
                         handleToolCalls(config, systemPrompt)
                     } else {
