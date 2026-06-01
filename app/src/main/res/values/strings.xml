@@ -55,4 +55,16 @@
 
     <!-- Capability settings -->
     <string name="capability_web_search">联网搜索</string>
+
+    <!-- Chat -->
+    <string name="hint_input_message">输入消息…</string>
+    <string name="btn_new_chat">新建会话</string>
+    <string name="btn_select_image">选择图片</string>
+    <string name="btn_select_file">选择文件</string>
+    <string name="btn_select_model">选择模型</string>
+    <string name="btn_send">发送</string>
+    <string name="delete_conversation_confirm_title">确认删除</string>
+    <string name="delete_conversation_confirm_message">确定要删除这个对话吗？</string>
+    <string name="chat_role_user">用户</string>
+    <string name="chat_role_assistant">助手</string>
 </resources>
