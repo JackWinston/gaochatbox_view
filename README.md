@@ -1,4 +1,4 @@
-# ChatBox View
+# GaoChatbox View
 
 一款支持多模型、多角色人设、本地优先存储的 Android AI 聊天应用。
 
