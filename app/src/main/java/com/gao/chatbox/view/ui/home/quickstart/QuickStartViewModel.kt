@@ -51,6 +51,13 @@ class QuickStartViewModel(
         }
     }
 
+    fun reorderPrompts(prompts: List<SystemPrompt>) {
+        viewModelScope.launch {
+            systemPromptManager.reorderPrompts(prompts)
+            refreshPrompts()
+        }
+    }
+
     class Factory @Inject constructor(
         private val systemPromptManager: SystemPromptManager
     ) : ViewModelProvider.Factory {

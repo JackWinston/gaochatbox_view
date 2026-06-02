@@ -7,5 +7,7 @@ data class SystemPrompt(
     val content: String,
     val tag: String,
     val isDefault: Boolean = false,
+    val isPreset: Boolean = false,
+    val presetKey: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )

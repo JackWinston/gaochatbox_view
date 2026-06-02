@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.model.SystemPrompt
 import com.google.gson.Gson
@@ -52,8 +53,40 @@ class SystemPromptManager @Inject constructor(
     }
 
     private suspend fun syncDefaultPrompts(currentPrompts: List<SystemPrompt>) {
-        val customPrompts = currentPrompts.filterNot { it.isDefault }
-        saveList(buildDefaultPrompts() + customPrompts)
+        val hiddenPresetKeys = getHiddenPresetKeys()
+        val builtPrompts = buildDefaultPrompts()
+        val defaultPrompt = builtPrompts.firstOrNull { it.isDefault }
+        val activePresetMap = builtPrompts
+            .filterNot { it.isDefault }
+            .filterNot { it.presetKey in hiddenPresetKeys }
+            .associateBy { it.presetKey }
+
+        val syncedPrompts = mutableListOf<SystemPrompt>()
+        if (defaultPrompt != null) {
+            syncedPrompts.add(defaultPrompt)
+        }
+
+        val addedPresetKeys = mutableSetOf<String>()
+        currentPrompts.filterNot { it.isDefault }.forEach { prompt ->
+            if (prompt.isPreset) {
+                val presetKey = prompt.presetKey ?: return@forEach
+                val rebuiltPrompt = activePresetMap[presetKey] ?: return@forEach
+                if (addedPresetKeys.add(presetKey)) {
+                    syncedPrompts.add(rebuiltPrompt)
+                }
+            } else {
+                syncedPrompts.add(prompt)
+            }
+        }
+
+        activePresetMap.values.forEach { prompt ->
+            val presetKey = prompt.presetKey ?: return@forEach
+            if (addedPresetKeys.add(presetKey)) {
+                syncedPrompts.add(prompt)
+            }
+        }
+
+        saveList(syncedPrompts)
     }
 
     suspend fun getAll(): List<SystemPrompt> {
@@ -86,8 +119,28 @@ class SystemPromptManager @Inject constructor(
 
     suspend fun delete(id: String) {
         val list = getAll().toMutableList()
+        val prompt = list.find { it.id == id } ?: return
+        if (prompt.isDefault) return
+        if (prompt.isPreset) {
+            addHiddenPresetKey(prompt.presetKey)
+        }
         list.removeAll { it.id == id }
         saveList(list)
+    }
+
+    suspend fun reorderPrompts(orderedPrompts: List<SystemPrompt>) {
+        val currentPrompts = getAll()
+        val defaultPrompt = currentPrompts.find { it.isDefault }
+        val movablePromptMap = currentPrompts
+            .filterNot { it.isDefault }
+            .associateBy { it.id }
+        val reorderedPrompts = orderedPrompts
+            .filterNot { it.isDefault }
+            .mapNotNull { movablePromptMap[it.id] }
+        if (reorderedPrompts.size != movablePromptMap.size) {
+            return
+        }
+        saveList(listOfNotNull(defaultPrompt) + reorderedPrompts)
     }
 
     private suspend fun saveList(list: List<SystemPrompt>) {
@@ -96,14 +149,31 @@ class SystemPromptManager @Inject constructor(
         }
     }
 
+    private suspend fun getHiddenPresetKeys(): Set<String> {
+        return dataStore.data.map { prefs ->
+            prefs[KEY_HIDDEN_PRESET_KEYS] ?: emptySet()
+        }.first()
+    }
+
+    private suspend fun addHiddenPresetKey(presetKey: String?) {
+        if (presetKey.isNullOrBlank()) return
+        dataStore.edit { prefs ->
+            val hiddenKeys = (prefs[KEY_HIDDEN_PRESET_KEYS] ?: emptySet()).toMutableSet()
+            hiddenKeys.add(presetKey)
+            prefs[KEY_HIDDEN_PRESET_KEYS] = hiddenKeys
+        }
+    }
+
     private fun buildDefaultPrompts(): List<SystemPrompt> {
         val legalJurisdiction = resolveLegalJurisdiction()
         val medicalTerms = resolveMedicalTerms()
         return listOf(
             SystemPrompt(
-                content = context.getString(R.string.default_system_prompt_content),
                 tag = context.getString(R.string.default_system_prompt_tag),
-                isDefault = true
+                content = context.getString(R.string.default_system_prompt_content),
+                isDefault = true,
+                isPreset = true,
+                presetKey = PRESET_KEY_DEFAULT
             ),
             SystemPrompt(
                 tag = context.getString(R.string.preset_tag_family_doctor),
@@ -113,37 +183,44 @@ class SystemPromptManager @Inject constructor(
                     medicalTerms.emergencyCare,
                     medicalTerms.emergencyContact
                 ),
-                isDefault = true
+                isPreset = true,
+                presetKey = PRESET_KEY_FAMILY_DOCTOR
             ),
             SystemPrompt(
                 tag = context.getString(R.string.preset_tag_lawyer),
                 content = context.getString(R.string.preset_content_lawyer, legalJurisdiction),
-                isDefault = true
+                isPreset = true,
+                presetKey = PRESET_KEY_LAWYER
             ),
             SystemPrompt(
                 tag = context.getString(R.string.preset_tag_translator),
                 content = context.getString(R.string.preset_content_translator),
-                isDefault = true
+                isPreset = true,
+                presetKey = PRESET_KEY_TRANSLATOR
             ),
             SystemPrompt(
                 tag = context.getString(R.string.preset_tag_writer),
                 content = context.getString(R.string.preset_content_writer),
-                isDefault = true
+                isPreset = true,
+                presetKey = PRESET_KEY_WRITER
             ),
             SystemPrompt(
                 tag = context.getString(R.string.preset_tag_programmer),
                 content = context.getString(R.string.preset_content_programmer),
-                isDefault = true
+                isPreset = true,
+                presetKey = PRESET_KEY_PROGRAMMER
             ),
             SystemPrompt(
                 tag = context.getString(R.string.preset_tag_interview_coach),
                 content = context.getString(R.string.preset_content_interview_coach),
-                isDefault = true
+                isPreset = true,
+                presetKey = PRESET_KEY_INTERVIEW_COACH
             ),
             SystemPrompt(
                 tag = context.getString(R.string.preset_tag_study_tutor),
                 content = context.getString(R.string.preset_content_study_tutor),
-                isDefault = true
+                isPreset = true,
+                presetKey = PRESET_KEY_STUDY_TUTOR
             )
         )
     }
@@ -152,7 +229,8 @@ class SystemPromptManager @Inject constructor(
         val locale = context.resources.configuration.locales[0] ?: Locale.getDefault()
         val countryCode = locale.country
         if (countryCode.isNotBlank()) {
-            return Locale("", countryCode).getDisplayCountry(locale).ifBlank {
+            val countryLocale = Locale.Builder().setRegion(countryCode).build()
+            return countryLocale.getDisplayCountry(locale).ifBlank {
                 defaultLegalJurisdictionFor(locale)
             }
         }
@@ -196,5 +274,15 @@ class SystemPromptManager @Inject constructor(
     companion object {
         private val KEY_PROMPTS = stringPreferencesKey("system_prompts")
         private val KEY_INITIALIZED = booleanPreferencesKey("initialized")
+        private val KEY_HIDDEN_PRESET_KEYS = stringSetPreferencesKey("hidden_system_prompt_preset_keys")
+
+        private const val PRESET_KEY_DEFAULT = "default"
+        private const val PRESET_KEY_FAMILY_DOCTOR = "family_doctor"
+        private const val PRESET_KEY_LAWYER = "lawyer"
+        private const val PRESET_KEY_TRANSLATOR = "translator"
+        private const val PRESET_KEY_WRITER = "writer"
+        private const val PRESET_KEY_PROGRAMMER = "programmer"
+        private const val PRESET_KEY_INTERVIEW_COACH = "interview_coach"
+        private const val PRESET_KEY_STUDY_TUTOR = "study_tutor"
     }
 }
