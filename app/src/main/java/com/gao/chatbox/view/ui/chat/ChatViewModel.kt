@@ -1,5 +1,6 @@
 package com.gao.chatbox.view.ui.chat
 
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -37,6 +38,7 @@ class ChatViewModel(
 ) : ViewModel() {
 
     companion object {
+        private const val TAG = "ChatViewModel"
         private val KEY_WEB_SEARCH = booleanPreferencesKey("capability_web_search")
         private val KEY_SHOW_CHAR_COUNT = booleanPreferencesKey("ui_show_char_count")
         private val KEY_SHOW_TOKEN_COUNT = booleanPreferencesKey("ui_show_token_count")
@@ -94,6 +96,7 @@ class ChatViewModel(
     private val pendingToolCalls = mutableMapOf<Int, ToolCallBuilder>()
     private var toolCallRoundCount = 0
     private var pendingAttachment: PendingAttachment? = null
+    private var pendingToolFallbackMessage: String? = null
 
     private data class ToolCallBuilder(
         var id: String = "",
@@ -346,6 +349,7 @@ class ChatViewModel(
         config: ModelConfig,
         systemPrompt: String
     ) {
+        Log.d(TAG, "collectStream start, conversationId=${result.conversationId}, assistantMessageId=${result.assistantMessageId}, toolCallRoundCount=$toolCallRoundCount")
         result.stream.collect { event ->
             when (event) {
                 is StreamEvent.ContentDelta -> {
@@ -363,6 +367,7 @@ class ChatViewModel(
                     event.arguments?.let { builder.arguments.append(it) }
                 }
                 is StreamEvent.StreamEnd -> {
+                    Log.d(TAG, "collectStream end, pendingToolCalls=${pendingToolCalls.size}, accumulatedLength=${accumulatedContent.length}, completionTokens=${event.usage?.completionTokens}")
                     if (pendingToolCalls.isNotEmpty() && toolCallRoundCount < 5) {
                         toolCallRoundCount++
                         handleToolCalls(config, systemPrompt)
@@ -372,6 +377,7 @@ class ChatViewModel(
                     }
                 }
                 is StreamEvent.Error -> {
+                    Log.e(TAG, "collectStream error, message=${event.message}")
                     showErrorMessage(event.message)
                     finishStreaming()
                 }
@@ -385,7 +391,8 @@ class ChatViewModel(
         val idx = items.indexOfFirst { it is ChatItem.StreamingMessage }
         if (idx >= 0) {
             items[idx] = (items[idx] as ChatItem.StreamingMessage).copy(
-                content = accumulatedContent
+                content = accumulatedContent,
+                charCount = accumulatedContent.length
             )
         }
         _chatItems.value = items
@@ -395,6 +402,7 @@ class ChatViewModel(
         config: ModelConfig,
         systemPrompt: String
     ) {
+        Log.d(TAG, "handleToolCalls start, pendingToolCalls=${pendingToolCalls.size}, accumulatedLength=${accumulatedContent.length}")
         val items = _chatItems.value.toMutableList()
         val streamIdx = items.indexOfFirst { it is ChatItem.StreamingMessage }
         if (streamIdx >= 0) {
@@ -453,9 +461,13 @@ class ChatViewModel(
 
         // Execute tools and save results
         val toolResults = mutableMapOf<String, String>()
+        val toolExecutionSummaries = mutableListOf<String>()
         for (toolCall in toolCalls) {
             val result = withContext(Dispatchers.IO) { executeTool(toolCall) }
+            val isError = isToolExecutionError(result)
             toolResults[toolCall.id] = result
+            toolExecutionSummaries.add("${toolCall.function.name}: $result")
+            Log.d(TAG, "tool executed, tool=${toolCall.function.name}, toolCallId=${toolCall.id}, isError=$isError")
 
             dbManager.addToolResultMessage(
                 conversationId = conversationId,
@@ -474,11 +486,12 @@ class ChatViewModel(
                     toolName = toolCall.function.name,
                     arguments = toolCall.function.arguments,
                     result = result,
-                    status = ChatItem.ToolCallStatus.COMPLETED
+                    status = if (isError) ChatItem.ToolCallStatus.ERROR else ChatItem.ToolCallStatus.COMPLETED
                 )
                 _chatItems.value = currentItems
             }
         }
+        pendingToolFallbackMessage = buildToolFallbackMessage(toolExecutionSummaries)
 
         // Create a NEW assistant message for the final response
         currentAssistantMessageId = dbManager.addAssistantMessage(
@@ -494,6 +507,7 @@ class ChatViewModel(
 
         // Send tool results and continue streaming
         try {
+            Log.d(TAG, "sendToolResult start, toolCount=${toolCalls.size}, assistantMessageId=$currentAssistantMessageId")
             val secondResult = chatRepository.sendToolResult(
                 conversationId = conversationId,
                 history = messageHistory,
@@ -506,6 +520,7 @@ class ChatViewModel(
 
             collectStream(secondResult, config, systemPrompt)
         } catch (e: Exception) {
+            Log.e(TAG, "sendToolResult failed", e)
             showErrorMessage("工具结果请求失败: ${e.message}")
             finishStreaming()
         }
@@ -552,11 +567,20 @@ class ChatViewModel(
 
         val items = _chatItems.value.toMutableList()
         val idx = items.indexOfFirst { it is ChatItem.StreamingMessage }
+        val fallbackMessage = pendingToolFallbackMessage
         if (idx >= 0) {
             if (accumulatedContent.isNotBlank()) {
                 items[idx] = ChatItem.AssistantMessage(
                     id = "msg_${System.currentTimeMillis()}",
                     content = accumulatedContent,
+                    modelName = _selectedModelName.value.ifEmpty { null },
+                    tokenCount = tokenCount ?: 0,
+                    createdAt = System.currentTimeMillis()
+                )
+            } else if (!fallbackMessage.isNullOrBlank()) {
+                items[idx] = ChatItem.AssistantMessage(
+                    id = "msg_${System.currentTimeMillis()}",
+                    content = fallbackMessage,
                     modelName = _selectedModelName.value.ifEmpty { null },
                     tokenCount = tokenCount ?: 0,
                     createdAt = System.currentTimeMillis()
@@ -575,7 +599,26 @@ class ChatViewModel(
 
         _isStreaming.value = false
         accumulatedContent = ""
+        pendingToolFallbackMessage = null
         streamingJob = null
+    }
+
+    private fun isToolExecutionError(result: String): Boolean {
+        return result.startsWith("搜索失败") ||
+            result.startsWith("搜索执行失败") ||
+            result.startsWith("未知工具") ||
+            result.startsWith("搜索关键词为空")
+    }
+
+    private fun buildToolFallbackMessage(toolExecutionSummaries: List<String>): String {
+        if (toolExecutionSummaries.isEmpty()) return ""
+        return buildString {
+            appendLine("工具调用已完成，但模型没有返回最终总结。以下是工具结果：")
+            appendLine()
+            toolExecutionSummaries.forEachIndexed { index, summary ->
+                appendLine("${index + 1}. $summary")
+            }
+        }.trim()
     }
 
     private fun generateTitle(items: List<ChatItem>) {

@@ -1,5 +1,6 @@
 package com.gao.chatbox.view.util
 
+import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -7,17 +8,27 @@ import java.util.regex.Pattern
 
 object WebSearchTool {
 
+    private const val TAG = "WebSearchTool"
+
     private val client by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .callTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
+            .retryOnConnectionFailure(true)
             .build()
     }
 
     fun execute(query: String): String {
+        val startTime = System.currentTimeMillis()
+        Log.d(TAG, "execute start, queryLength=${query.length}, query=${query.take(120)}")
         return try {
-            val results = searchDuckDuckGo(query)
+            val results = search(query)
+            Log.d(
+                TAG,
+                "execute success, resultCount=${results.size}, elapsedMs=${System.currentTimeMillis() - startTime}"
+            )
             if (results.isEmpty()) {
                 "未找到与\"$query\"相关的搜索结果"
             } else {
@@ -33,7 +44,12 @@ object WebSearchTool {
                 }
             }
         } catch (e: Exception) {
-            "搜索失败: ${e.message ?: e.javaClass.simpleName}"
+            Log.e(
+                TAG,
+                "execute failed, elapsedMs=${System.currentTimeMillis() - startTime}, query=$query",
+                e
+            )
+            "搜索失败: 网络超时或搜索服务暂时不可用，请稍后重试"
         }
     }
 
@@ -43,25 +59,66 @@ object WebSearchTool {
         val snippet: String
     )
 
+    private fun search(query: String): List<SearchResult> {
+        Log.d(TAG, "search start, engines=[bing,duckduckgo]")
+        return runCatching { searchBing(query) }
+            .onFailure { Log.w(TAG, "bing failed, fallback to duckduckgo", it) }
+            .getOrElse {
+                runCatching { searchDuckDuckGo(query) }
+                    .onFailure { error -> Log.e(TAG, "duckduckgo failed after bing fallback", error) }
+                    .getOrThrow()
+            }
+    }
+
     private fun searchDuckDuckGo(query: String): List<SearchResult> {
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
         val url = "https://html.duckduckgo.com/html/?q=$encodedQuery"
 
+        Log.d(TAG, "searchDuckDuckGo start, url=$url")
+        val html = executeRequest(url)
+        val results = parseDuckDuckGoHtml(html)
+        Log.d(TAG, "searchDuckDuckGo parsed, resultCount=${results.size}")
+        return results
+    }
+
+    private fun searchBing(query: String): List<SearchResult> {
+        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+        val url = "https://www.bing.com/search?q=$encodedQuery&setlang=zh-Hans"
+        Log.d(TAG, "searchBing start, url=$url")
+        val html = executeRequest(url)
+        val results = parseBingHtml(html)
+        Log.d(TAG, "searchBing parsed, resultCount=${results.size}")
+        return results
+    }
+
+    private fun executeRequest(url: String): String {
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
             .build()
 
-        val response = client.newCall(request).execute()
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code}: ${response.message}")
+        val startTime = System.currentTimeMillis()
+        Log.d(TAG, "http request start, url=$url")
+        client.newCall(request).execute().use { response ->
+            val elapsedMs = System.currentTimeMillis() - startTime
+            Log.d(
+                TAG,
+                "http response, url=$url, code=${response.code}, successful=${response.isSuccessful}, elapsedMs=$elapsedMs"
+            )
+            if (!response.isSuccessful) {
+                throw Exception("HTTP ${response.code}: ${response.message}, url=$url")
+            }
+            val body = response.body?.string().orEmpty()
+            Log.d(
+                TAG,
+                "http body read, url=$url, bodyLength=${body.length}, bodyPreview=${body.take(200).replace('\n', ' ')}"
+            )
+            return body
         }
-        val html = response.body?.string() ?: return emptyList()
-
-        return parseHtml(html)
     }
 
-    private fun parseHtml(html: String): List<SearchResult> {
+    private fun parseDuckDuckGoHtml(html: String): List<SearchResult> {
         val results = mutableListOf<SearchResult>()
 
         // Parse DuckDuckGo HTML results
@@ -97,7 +154,73 @@ object WebSearchTool {
             }
         }
 
+        Log.d(
+            TAG,
+            "parseDuckDuckGoHtml done, htmlLength=${html.length}, resultCount=${results.size}, firstTitle=${results.firstOrNull()?.title.orEmpty().take(80)}"
+        )
         return results
+    }
+
+    private fun parseBingHtml(html: String): List<SearchResult> {
+        val results = mutableListOf<SearchResult>()
+        val blockPattern = Pattern.compile(
+            """<li[^>]+class="[^"]*\bb_algo\b[^"]*"[^>]*>(.*?)</li>""",
+            Pattern.DOTALL
+        )
+        val titleInsideAnchorPattern = Pattern.compile(
+            """<a[^>]*href="([^"]+)"[^>]*>\s*<h2[^>]*>(.*?)</h2>\s*</a>""",
+            Pattern.DOTALL
+        )
+        val titleOutsideAnchorPattern = Pattern.compile(
+            """<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>\s*</h2>""",
+            Pattern.DOTALL
+        )
+        val snippetPattern = Pattern.compile(
+            """<p[^>]*>(.*?)</p>""",
+            Pattern.DOTALL
+        )
+
+        val blockMatcher = blockPattern.matcher(html)
+        while (blockMatcher.find() && results.size < 10) {
+            val block = blockMatcher.group(1) ?: continue
+            val titleMatch = findBingTitleMatch(
+                block,
+                titleInsideAnchorPattern,
+                titleOutsideAnchorPattern
+            ) ?: continue
+
+            val url = stripHtml(titleMatch.first)
+            val title = stripHtml(titleMatch.second)
+            val snippet = snippetPattern.matcher(block).run {
+                if (find()) stripHtml(group(1) ?: "") else ""
+            }
+
+            if (title.isNotBlank() && url.isNotBlank()) {
+                results.add(SearchResult(title, url, snippet))
+            }
+        }
+        Log.d(
+            TAG,
+            "parseBingHtml done, htmlLength=${html.length}, resultCount=${results.size}, firstTitle=${results.firstOrNull()?.title.orEmpty().take(80)}"
+        )
+        return results
+    }
+
+    private fun findBingTitleMatch(
+        block: String,
+        titleInsideAnchorPattern: Pattern,
+        titleOutsideAnchorPattern: Pattern
+    ): Pair<String, String>? {
+        val insideAnchorMatcher = titleInsideAnchorPattern.matcher(block)
+        if (insideAnchorMatcher.find()) {
+            return (insideAnchorMatcher.group(1) ?: "") to (insideAnchorMatcher.group(2) ?: "")
+        }
+
+        val outsideAnchorMatcher = titleOutsideAnchorPattern.matcher(block)
+        if (outsideAnchorMatcher.find()) {
+            return (outsideAnchorMatcher.group(1) ?: "") to (outsideAnchorMatcher.group(2) ?: "")
+        }
+        return null
     }
 
     private fun extractUrl(rawUrl: String): String {

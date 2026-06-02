@@ -1,5 +1,6 @@
 package com.gao.chatbox.view.data.repository
 
+import android.util.Log
 import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
 import com.gao.chatbox.view.data.model.ModelConfig
 import com.gao.chatbox.view.data.remote.AnthropicMessage
@@ -13,6 +14,7 @@ import com.gao.chatbox.view.data.remote.ToolCallFunction
 import com.gao.chatbox.view.data.remote.ToolDefinition
 import com.gao.chatbox.view.data.remote.ToolFunctionDefinition
 import com.gao.chatbox.view.util.ApiClient
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,6 +36,10 @@ data class MessageContext(
 class ChatRepository @Inject constructor(
     private val dbManager: ChatDatabaseManager
 ) {
+
+    companion object {
+        private const val TAG = "ChatRepository"
+    }
 
     suspend fun sendMessage(
         conversationId: Long,
@@ -157,15 +163,26 @@ class ChatRepository @Inject constructor(
             ))
         }
 
-        val tools = buildWebSearchTools()
-
         val request = OpenAiChatRequest(
             model = model,
             messages = messages,
             temperature = config.temperature,
             stream = true,
             streamOptions = mapOf("include_usage" to true),
-            tools = tools
+            tools = null
+        )
+
+        Log.d(
+            TAG,
+            "sendToolResult request, model=$model, messageCount=${messages.size}, toolCount=${toolCalls.size}, toolsEnabled=false"
+        )
+        Log.d(
+            TAG,
+            "sendToolResult messageSummary=${messages.mapIndexed { index, msg -> "[$index role=${msg.role} contentType=${msg.content?.javaClass?.simpleName ?: "null"} toolCalls=${msg.toolCalls?.size ?: 0} toolCallId=${msg.toolCallId ?: ""}]" }.joinToString(" ")}"
+        )
+        Log.d(
+            TAG,
+            "sendToolResult requestJson=${Gson().toJson(request).take(4000)}"
         )
 
         val responseBody = api.createChatCompletionStream(

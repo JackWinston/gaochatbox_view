@@ -30,11 +30,20 @@ class ChatAdapter(
     }
 
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+    private val streamingRenderStates = mutableMapOf<String, StreamingRenderState>()
 
     private var showCharCount = false
     private var showTokenCount = false
     private var showModelName = false
     private var showTimestamp = false
+
+    private data class StreamingRenderState(
+        val content: String,
+        val isThinking: Boolean,
+        val thinkingStartTime: Long,
+        val charCount: Int,
+        val isExpanded: Boolean = false
+    )
 
     fun updateSettings(
         showCharCount: Boolean,
@@ -222,59 +231,23 @@ class ChatAdapter(
 
             override fun onBind(holder: QuickViewHolder, position: Int, item: ChatItem?) {
                 val streaming = item as? ChatItem.StreamingMessage ?: return
-                val streamingContent = holder.itemView.getTag(R.id.tag_streaming_content) as? String ?: ""
-                val isExpanded = holder.itemView.getTag(R.id.tag_streaming_expanded) as? Boolean ?: false
-
-                val content = streamingContent.ifEmpty { streaming.content }
-                val progressThinking = holder.getView<ProgressBar>(R.id.progress_thinking)
-                val tvStatus = holder.getView<TextView>(R.id.tv_status)
-                if (streaming.isThinking && content.isEmpty()) {
-                    progressThinking.visibility = View.VISIBLE
-                    tvStatus.text = holder.itemView.context.getString(R.string.chat_thinking)
-                } else {
-                    progressThinking.visibility = View.GONE
-                    tvStatus.text = holder.itemView.context.getString(R.string.chat_streaming_done)
-                }
-
-                applyExpandState(holder, content, isExpanded)
-
-                // 更新统计信息
-                val tvStats = holder.getView<TextView>(R.id.tv_stats)
-                if (streaming.thinkingStartTime > 0) {
-                    val elapsedSeconds = ((System.currentTimeMillis() - streaming.thinkingStartTime) / 1000).toInt()
-                    tvStats.text = holder.itemView.context.getString(
-                        R.string.chat_streaming_stats,
-                        elapsedSeconds,
-                        streaming.charCount
-                    )
-                    tvStats.visibility = View.VISIBLE
-                } else {
-                    tvStats.visibility = View.GONE
-                }
-
-                // 中止按钮 - 仅在流式传输过程中显示
-                val btnStop = holder.getView<View>(R.id.btn_stop)
-                if (streaming.isThinking) {
-                    btnStop.visibility = View.VISIBLE
-                    btnStop.setOnClickListener {
-                        listener?.onStreamingStop()
-                    }
-                } else {
-                    btnStop.visibility = View.GONE
-                }
+                val renderState = syncStreamingRenderState(streaming)
+                bindStreamingState(holder, renderState)
 
                 holder.getView<View>(R.id.layout_header).setOnClickListener {
-                    val newExpanded = !(holder.itemView.getTag(R.id.tag_streaming_expanded) as? Boolean ?: false)
-                    holder.itemView.setTag(R.id.tag_streaming_expanded, newExpanded)
-                    val currentContent = holder.itemView.getTag(R.id.tag_streaming_content) as? String ?: ""
-                    applyExpandState(holder, currentContent, newExpanded)
-                    if (newExpanded) {
+                    val recyclerView = holder.itemView.parent as? RecyclerView
+                    val updatedState = streamingRenderStates[streaming.id]?.copy(
+                        isExpanded = !(streamingRenderStates[streaming.id]?.isExpanded ?: false)
+                    ) ?: syncStreamingRenderState(streaming).copy(isExpanded = true)
+                    streamingRenderStates[streaming.id] = updatedState
+                    bindStreamingState(holder, updatedState)
+                    if (updatedState.isExpanded) {
                         holder.itemView.post {
-                            val parent = holder.itemView.parent
-                            if (parent is RecyclerView) {
+                            if (recyclerView != null) {
+                                keepStreamingContentVisible(recyclerView, holder)
                                 val pos = holder.adapterPosition
-                                if (pos != RecyclerView.NO_POSITION) {
-                                    parent.smoothScrollToPosition(pos)
+                                if (pos != RecyclerView.NO_POSITION && pos < itemCount - 1) {
+                                    recyclerView.smoothScrollToPosition(pos)
                                 }
                             }
                         }
@@ -339,46 +312,137 @@ class ChatAdapter(
         }
     }
 
-    fun findStreamingViewHolder(recyclerView: RecyclerView): StreamingViewHolderProxy? {
+    private fun bindStreamingState(holder: QuickViewHolder, state: StreamingRenderState) {
+        val progressThinking = holder.getView<ProgressBar>(R.id.progress_thinking)
+        val tvStatus = holder.getView<TextView>(R.id.tv_status)
+        if (state.isThinking && state.content.isEmpty()) {
+            progressThinking.visibility = View.VISIBLE
+            tvStatus.text = holder.itemView.context.getString(R.string.chat_thinking)
+        } else if (state.isThinking) {
+            progressThinking.visibility = View.VISIBLE
+            tvStatus.text = holder.itemView.context.getString(R.string.chat_streaming_responding)
+        } else {
+            progressThinking.visibility = View.GONE
+            tvStatus.text = holder.itemView.context.getString(R.string.chat_streaming_done)
+        }
+
+        applyExpandState(holder, state.content, state.isExpanded)
+
+        val tvStats = holder.getView<TextView>(R.id.tv_stats)
+        if (state.thinkingStartTime > 0) {
+            val elapsedSeconds = ((System.currentTimeMillis() - state.thinkingStartTime) / 1000).toInt()
+            tvStats.text = holder.itemView.context.getString(
+                R.string.chat_streaming_stats,
+                elapsedSeconds,
+                state.charCount
+            )
+            tvStats.visibility = View.VISIBLE
+        } else {
+            tvStats.visibility = View.GONE
+        }
+
+        val btnStop = holder.getView<View>(R.id.btn_stop)
+        if (state.isThinking) {
+            btnStop.visibility = View.VISIBLE
+            btnStop.setOnClickListener {
+                listener?.onStreamingStop()
+            }
+        } else {
+            btnStop.visibility = View.GONE
+        }
+    }
+
+    private fun syncStreamingRenderState(streaming: ChatItem.StreamingMessage): StreamingRenderState {
+        val updatedState = (streamingRenderStates[streaming.id] ?: StreamingRenderState(
+            content = streaming.content,
+            isThinking = streaming.isThinking,
+            thinkingStartTime = streaming.thinkingStartTime,
+            charCount = streaming.charCount
+        )).copy(
+            content = streaming.content,
+            isThinking = streaming.isThinking,
+            thinkingStartTime = streaming.thinkingStartTime,
+            charCount = streaming.charCount
+        )
+        streamingRenderStates[streaming.id] = updatedState
+        return updatedState
+    }
+
+    fun updateStreamingMessage(recyclerView: RecyclerView, streaming: ChatItem.StreamingMessage) {
+        val updatedState = syncStreamingRenderState(streaming)
+        val holder = findStreamingViewHolder(recyclerView, streaming.id)
+        val shouldAutoScroll = shouldAutoScrollStreamingUpdate(recyclerView, updatedState, streaming.id)
+        if (holder != null) {
+            bindStreamingState(holder, updatedState)
+            if (shouldAutoScroll) {
+                holder.itemView.post {
+                    keepStreamingContentVisible(recyclerView, holder)
+                }
+            }
+            return
+        }
+
+        val index = (0 until itemCount).firstOrNull {
+            (getItem(it) as? ChatItem.StreamingMessage)?.id == streaming.id
+        } ?: return
+        notifyItemChanged(index)
+        if (shouldAutoScroll) {
+            recyclerView.post {
+                keepRecyclerViewBottomVisible(recyclerView)
+            }
+        }
+    }
+
+    fun syncStreamingRenderStates(items: List<ChatItem>) {
+        val validIds = items.mapNotNull { (it as? ChatItem.StreamingMessage)?.id }.toSet()
+        streamingRenderStates.keys.retainAll(validIds)
+        items.forEach { item ->
+            val streaming = item as? ChatItem.StreamingMessage ?: return@forEach
+            syncStreamingRenderState(streaming)
+        }
+    }
+
+    private fun findStreamingViewHolder(recyclerView: RecyclerView, streamingId: String): QuickViewHolder? {
         for (i in 0 until itemCount) {
-            if (getItem(i) is ChatItem.StreamingMessage) {
+            val item = getItem(i) as? ChatItem.StreamingMessage ?: continue
+            if (item.id == streamingId) {
                 val holder = recyclerView.findViewHolderForAdapterPosition(i)
                 if (holder is QuickViewHolder) {
-                    return StreamingViewHolderProxy(holder)
+                    return holder
                 }
             }
         }
         return null
     }
 
-    class StreamingViewHolderProxy(private val holder: QuickViewHolder) {
-        val isExpanded: Boolean
-            get() = holder.itemView.getTag(R.id.tag_streaming_expanded) as? Boolean ?: false
+    private fun shouldAutoScrollStreamingUpdate(
+        recyclerView: RecyclerView,
+        state: StreamingRenderState,
+        streamingId: String
+    ): Boolean {
+        if (!state.isExpanded || recyclerView.canScrollVertically(1)) {
+            return false
+        }
+        val index = (0 until itemCount).firstOrNull {
+            (getItem(it) as? ChatItem.StreamingMessage)?.id == streamingId
+        } ?: return false
+        return index == itemCount - 1
+    }
 
-        val adapterPosition: Int
-            get() = holder.adapterPosition
+    private fun keepStreamingContentVisible(recyclerView: RecyclerView, holder: QuickViewHolder) {
+        val targetBottom = recyclerView.height - recyclerView.paddingBottom
+        val overflow = holder.itemView.bottom - targetBottom
+        if (overflow > 0) {
+            recyclerView.scrollBy(0, overflow)
+        }
+    }
 
-        fun updateStreamingContent(content: String, thinkingStartTime: Long = 0L, charCount: Int = 0) {
-            holder.itemView.setTag(R.id.tag_streaming_content, content)
-            holder.setGone(R.id.progress_thinking, true)
-            holder.setText(R.id.tv_status, holder.itemView.context.getString(R.string.chat_streaming_responding))
-            if (isExpanded) {
-                holder.getView<TextView>(R.id.tv_content).text = content
-            }
-
-            // 更新统计信息
-            val tvStats = holder.getView<TextView>(R.id.tv_stats)
-            if (thinkingStartTime > 0) {
-                val elapsedSeconds = ((System.currentTimeMillis() - thinkingStartTime) / 1000).toInt()
-                tvStats.text = holder.itemView.context.getString(
-                    R.string.chat_streaming_stats,
-                    elapsedSeconds,
-                    charCount
-                )
-                tvStats.visibility = View.VISIBLE
-            } else {
-                tvStats.visibility = View.GONE
-            }
+    private fun keepRecyclerViewBottomVisible(recyclerView: RecyclerView) {
+        val remainingScroll = recyclerView.computeVerticalScrollRange() -
+            recyclerView.computeVerticalScrollOffset() -
+            recyclerView.computeVerticalScrollExtent()
+        if (remainingScroll > 0) {
+            recyclerView.scrollBy(0, remainingScroll)
         }
     }
 }

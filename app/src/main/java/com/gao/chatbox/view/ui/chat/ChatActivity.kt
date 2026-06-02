@@ -71,6 +71,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     private lateinit var binding: ActivityChatBinding
     private lateinit var chatAdapter: ChatAdapter
+    private var lastRenderedItems: List<ChatItem> = emptyList()
     private val viewModel: ChatViewModel by viewModels {
         (application as ChatBoxApp).appComponent.chatViewModelFactory()
     }
@@ -127,6 +128,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         binding.rvMessages.apply {
             layoutManager = LinearLayoutManager(this@ChatActivity)
             adapter = chatAdapter
+            itemAnimator = null
         }
 
         // Bottom toolbar actions
@@ -153,8 +155,16 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     viewModel.chatItems.collect { items ->
-                        chatAdapter.submitList(items)
-                        scrollToBottom()
+                        val streamedItem = items.lastOrNull() as? ChatItem.StreamingMessage
+                        val incrementalStreamingUpdate = isStreamingContentOnlyUpdate(lastRenderedItems, items)
+
+                        if (incrementalStreamingUpdate && streamedItem != null) {
+                            chatAdapter.updateStreamingMessage(binding.rvMessages, streamedItem)
+                        } else {
+                            chatAdapter.syncStreamingRenderStates(items)
+                            chatAdapter.submitList(items)
+                        }
+                        lastRenderedItems = items
                     }
                 }
                 launch {
@@ -215,6 +225,36 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             showModelName = viewModel.showModelName.value,
             showTimestamp = viewModel.showTimestamp.value
         )
+        if (chatAdapter.itemCount > 0) {
+            chatAdapter.notifyDataSetChanged()
+        }
+    }
+
+    private fun isStreamingContentOnlyUpdate(
+        previous: List<ChatItem>,
+        current: List<ChatItem>
+    ): Boolean {
+        if (previous.size != current.size || previous.isEmpty()) return false
+
+        var streamingDiffCount = 0
+        previous.indices.forEach { index ->
+            val oldItem = previous[index]
+            val newItem = current[index]
+
+            if (oldItem is ChatItem.StreamingMessage && newItem is ChatItem.StreamingMessage) {
+                if (oldItem.id != newItem.id) return false
+                val onlyStreamingFieldsChanged =
+                    oldItem.isThinking == newItem.isThinking &&
+                        oldItem.thinkingStartTime == newItem.thinkingStartTime &&
+                        oldItem.content != newItem.content
+                if (!onlyStreamingFieldsChanged && oldItem != newItem) return false
+                if (oldItem != newItem) streamingDiffCount++
+                return@forEach
+            }
+
+            if (oldItem != newItem) return false
+        }
+        return streamingDiffCount == 1
     }
 
     // region ChatAdapterListener
