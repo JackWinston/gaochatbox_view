@@ -47,7 +47,8 @@ class SystemPromptAdapter(
 
             override fun onBind(holder: QuickViewHolder, position: Int, item: Item?) {
                 val prompt = (item as? Item.Prompt)?.prompt ?: return
-                holder.setText(R.id.tv_prompt, "${prompt.tag}: ${prompt.content}")
+                holder.setText(R.id.tv_tag, prompt.tag)
+                holder.setText(R.id.tv_content, prompt.content)
                 holder.itemView.setOnClickListener { onPromptClick(prompt) }
                 if (!prompt.isDefault) {
                     holder.itemView.setOnLongClickListener { view ->

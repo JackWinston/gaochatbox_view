@@ -15,9 +15,7 @@ import com.gao.chatbox.view.data.model.SystemPrompt
 import com.gao.chatbox.view.databinding.DialogSystemPromptBinding
 import com.gao.chatbox.view.databinding.FragmentQuickStartBinding
 import com.gao.chatbox.view.ui.chat.ChatActivity
-import com.google.android.flexbox.FlexDirection
-import com.google.android.flexbox.FlexboxLayoutManager
-import com.google.android.flexbox.JustifyContent
+import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
 
@@ -42,10 +40,7 @@ class QuickStartFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        val layoutManager = FlexboxLayoutManager(requireContext()).apply {
-            flexDirection = FlexDirection.ROW
-            justifyContent = JustifyContent.CENTER
-        }
+        val layoutManager = StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL)
         binding.rvPrompts.layoutManager = layoutManager
 
         setupAdapter()

@@ -177,7 +177,7 @@
                 android:importantForAutofill="no"
                 android:inputType="textMultiLine"
                 android:maxLines="5"
-                android:minHeight="40dp"
+                android:minHeight="60dp"
                 android:paddingHorizontal="8dp"
                 android:textColor="?attr/colorOnSurface"
                 android:textColorHint="?attr/colorOnSurfaceVariant"
