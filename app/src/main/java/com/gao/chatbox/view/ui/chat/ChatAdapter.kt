@@ -15,8 +15,26 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * 聊天消息列表适配器
+ *
+ * 使用 BaseMultiItemAdapter 实现 6 种消息类型的渲染：
+ * - TYPE_TIMESTAMP (0): 时间分隔线
+ * - TYPE_SYSTEM_PROMPT (1): 系统提示词卡片（可折叠）
+ * - TYPE_USER (2): 用户消息气泡（右侧）
+ * - TYPE_ASSISTANT (3): AI 助手消息气泡（左侧，Markdown 渲染）
+ * - TYPE_STREAMING (4): 流式传输中的消息（加载动画 + 实时内容）
+ * - TYPE_TOOL_CALL (5): 工具调用消息（显示调用过程和结果）
+ *
+ * 特殊优化：
+ * - 流式消息使用增量更新（updateStreamingMessage）避免整列表刷新
+ * - 流式消息支持展开/折叠内容，独立管理渲染状态
+ * - 助手消息使用 Markwon 渲染 Markdown
+ */
 class ChatAdapter(
+    /** Markwon 实例，用于 Markdown 渲染 */
     private val markwon: Markwon,
+    /** 事件监听器（由 Activity 实现） */
     private val listener: ChatAdapterListener? = null
 ) : BaseMultiItemAdapter<ChatItem>() {
 
@@ -30,10 +48,21 @@ class ChatAdapter(
     }
 
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+    /** 流式消息的渲染状态缓存（按消息 ID），用于增量更新和展开/折叠状态保持 */
     private val streamingRenderStates = mutableMapOf<String, StreamingRenderState>()
 
+    /** 当前渲染设置 */
     private var renderSettings = ChatRenderSettings()
 
+    /**
+     * 流式消息的渲染状态
+     * @param content 当前内容
+     * @param isThinking 是否在思考中
+     * @param thinkingStartTime 思考开始时间
+     * @param charCount 字符数
+     * @param isExpanded 内容是否展开显示
+     */
     private data class StreamingRenderState(
         val content: String,
         val isThinking: Boolean,
@@ -42,6 +71,10 @@ class ChatAdapter(
         val isExpanded: Boolean = false
     )
 
+    /**
+     * 更新渲染设置
+     * @return true 表示设置有变化，调用方应刷新列表
+     */
     fun updateSettings(settings: ChatRenderSettings): Boolean {
         if (renderSettings == settings) {
             return false
@@ -50,9 +83,13 @@ class ChatAdapter(
         return true
     }
 
+    /** 适配器事件监听接口 */
     interface ChatAdapterListener {
+        /** 系统提示词展开/折叠切换 */
         fun onSystemPromptToggle(position: Int)
+        /** 消息内容长按（复制） */
         fun onContentLongPress(content: String)
+        /** 停止流式传输 */
         fun onStreamingStop()
     }
 
@@ -345,6 +382,12 @@ class ChatAdapter(
         }
     }
 
+    /**
+     * 同步流式消息的渲染状态
+     *
+     * 将 ChatItem.StreamingMessage 的数据同步到 StreamingRenderState 缓存。
+     * 保持展开/折叠状态不变，只更新内容相关字段。
+     */
     private fun syncStreamingRenderState(streaming: ChatItem.StreamingMessage): StreamingRenderState {
         val updatedState = (streamingRenderStates[streaming.id] ?: StreamingRenderState(
             content = streaming.content,
@@ -361,6 +404,15 @@ class ChatAdapter(
         return updatedState
     }
 
+    /**
+     * 增量更新流式消息（性能优化核心方法）
+     *
+     * 避免整列表刷新，直接找到 StreamingMessage 的 ViewHolder 并更新内容。
+     * 如果 ViewHolder 不可见（被回收），则回退到 notifyItemChanged。
+     *
+     * @param recyclerView 聊天列表
+     * @param streaming 最新的流式消息数据
+     */
     fun updateStreamingMessage(recyclerView: RecyclerView, streaming: ChatItem.StreamingMessage) {
         val updatedState = syncStreamingRenderState(streaming)
         val holder = findStreamingViewHolder(recyclerView, streaming.id)
@@ -375,6 +427,7 @@ class ChatAdapter(
             return
         }
 
+        // ViewHolder 不可见，回退到标准刷新
         val index = (0 until itemCount).firstOrNull {
             (getItem(it) as? ChatItem.StreamingMessage)?.id == streaming.id
         } ?: return
@@ -386,6 +439,12 @@ class ChatAdapter(
         }
     }
 
+    /**
+     * 同步所有流式消息的渲染状态
+     *
+     * 在全量 submitList 前调用，确保渲染状态缓存与最新数据一致。
+     * 同时清理已不存在的流式消息的状态缓存。
+     */
     fun syncStreamingRenderStates(items: List<ChatItem>) {
         val validIds = items.mapNotNull { (it as? ChatItem.StreamingMessage)?.id }.toSet()
         streamingRenderStates.keys.retainAll(validIds)
@@ -395,6 +454,7 @@ class ChatAdapter(
         }
     }
 
+    /** 在 RecyclerView 中查找指定 ID 的流式消息 ViewHolder */
     private fun findStreamingViewHolder(recyclerView: RecyclerView, streamingId: String): QuickViewHolder? {
         for (i in 0 until itemCount) {
             val item = getItem(i) as? ChatItem.StreamingMessage ?: continue
@@ -408,6 +468,10 @@ class ChatAdapter(
         return null
     }
 
+    /**
+     * 判断流式更新时是否需要自动滚动
+     * 条件：内容已展开 + 列表已滚动到底部 + 流式消息是最后一项
+     */
     private fun shouldAutoScrollStreamingUpdate(
         recyclerView: RecyclerView,
         state: StreamingRenderState,
@@ -422,6 +486,7 @@ class ChatAdapter(
         return index == itemCount - 1
     }
 
+    /** 确保流式消息内容可见（滚动到内容底部） */
     private fun keepStreamingContentVisible(recyclerView: RecyclerView, holder: QuickViewHolder) {
         val targetBottom = recyclerView.height - recyclerView.paddingBottom
         val overflow = holder.itemView.bottom - targetBottom
@@ -430,6 +495,7 @@ class ChatAdapter(
         }
     }
 
+    /** 滚动 RecyclerView 到最底部 */
     private fun keepRecyclerViewBottomVisible(recyclerView: RecyclerView) {
         val remainingScroll = recyclerView.computeVerticalScrollRange() -
             recyclerView.computeVerticalScrollOffset() -

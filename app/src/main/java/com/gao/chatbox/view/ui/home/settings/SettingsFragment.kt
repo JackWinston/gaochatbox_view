@@ -25,11 +25,29 @@ import com.gao.chatbox.view.util.ModelContextLimitResolver
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
 
+/**
+ * 设置页面 Fragment
+ *
+ * 功能概述：
+ * - 模型配置管理：查看/添加/编辑/删除 AI 模型配置（API URL、Key、模型名称等）
+ * - UI 偏好设置：显示字符数、Token 数、模型名、时间戳等开关
+ * - 能力设置：网页搜索开关、最大工具调用轮次
+ * - 语言设置：跟随系统 / 中文 / 英文
+ * - 主题设置：跟随系统 / 浅色 / 深色
+ *
+ * 数据流：Fragment → ViewModel → ModelConfigManager(模型) / DataStore(偏好)
+ * 使用可折叠分组布局，每个分组可独立展开/收起。
+ */
 class SettingsFragment : Fragment() {
 
+    /** ViewBinding 引用 */
     private var _binding: FragmentSettingsBinding? = null
     private val binding get() = _binding!!
+
+    /** 设置列表适配器，处理多类型 Item 渲染 */
     private var adapter: SettingsAdapter? = null
+
+    /** ViewModel，通过 Hilt Factory 注入多个依赖 */
     private val viewModel: SettingsViewModel by viewModels {
         (requireActivity().application as ChatBoxApp).appComponent.settingsViewModelFactory()
     }
@@ -57,6 +75,19 @@ class SettingsFragment : Fragment() {
         _binding = null
     }
 
+    /**
+     * 初始化适配器并绑定各类回调事件
+     *
+     * 回调说明：
+     * - onModelClick: 点击模型项 → 打开编辑模型对话框
+     * - onModelLongClick: 长按模型项 → 弹出编辑/删除菜单
+     * - onAddModelClick: 点击"添加模型" → 打开新增模型对话框
+     * - onUiSwitchChanged: UI 开关切换 → 持久化到 DataStore
+     * - onCapabilitySwitchChanged: 能力开关切换 → 持久化到 DataStore
+     * - onMaxToolCallRoundsClick: 点击最大工具调用轮次 → 弹出数值输入对话框
+     * - onLanguageClick: 点击语言设置 → 弹出语言选择对话框
+     * - onThemeClick: 点击主题设置 → 弹出主题选择对话框
+     */
     private fun setupAdapter() {
         adapter = SettingsAdapter(
             onModelClick = { config -> showModelDialog(config) },
@@ -75,6 +106,19 @@ class SettingsFragment : Fragment() {
         binding.rvSettings.adapter = adapter
     }
 
+    /**
+     * 观察 ViewModel 中的所有设置数据变化
+     *
+     * 并行收集多个 StateFlow：
+     * - models: 模型配置列表变化 → 更新适配器的模型列表
+     * - showCharCount/showTokenCount/showModelName/showTimestamp: UI 开关变化
+     * - webSearchEnabled: 网页搜索开关变化
+     * - maxToolCallRounds: 最大工具调用轮次变化
+     * - currentLanguage/currentTheme: 语言/主题变化
+     *
+     * 每个开关变化都会触发 rebuildItems() 重建设置列表，
+     * 因为开关状态需要反映在对应的列表项中。
+     */
     private fun observeData() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -135,6 +179,12 @@ class SettingsFragment : Fragment() {
         }
     }
 
+    /**
+     * 显示最大工具调用轮次设置对话框
+     *
+     * 用户输入一个数值，范围限制在 MIN_MAX_TOOL_CALL_ROUNDS 到 MAX_MAX_TOOL_CALL_ROUNDS 之间。
+     * 超出范围会显示错误提示。该设置控制 AI 连续调用工具（如网页搜索）的最大轮数。
+     */
     private fun showMaxToolCallRoundsDialog() {
         val editText = EditText(requireContext()).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
@@ -169,6 +219,10 @@ class SettingsFragment : Fragment() {
             .show()
     }
 
+    /**
+     * 显示模型配置的长按弹出菜单
+     * 提供编辑和删除两个选项
+     */
     private fun showModelPopupMenu(anchorView: View, config: ModelConfig) {
         val popup = PopupMenu(requireContext(), anchorView)
         popup.menuInflater.inflate(R.menu.menu_prompt_actions, popup.menu)
@@ -188,6 +242,7 @@ class SettingsFragment : Fragment() {
         popup.show()
     }
 
+    /** 显示删除模型确认对话框 */
     private fun showDeleteModelConfirm(config: ModelConfig) {
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(R.string.delete_confirm_title)
@@ -199,6 +254,13 @@ class SettingsFragment : Fragment() {
             .show()
     }
 
+    /**
+     * 显示主题选择对话框
+     *
+     * 三个选项：跟随系统、浅色模式、深色模式。
+     * 选择后通过 ViewModel 持久化到 DataStore，
+     * ThemeManager 会自动应用新的主题配置。
+     */
     private fun showThemeDialog() {
         val themes = arrayOf(
             getString(R.string.theme_system),
@@ -223,6 +285,13 @@ class SettingsFragment : Fragment() {
             .show()
     }
 
+    /**
+     * 显示语言选择对话框
+     *
+     * 三个选项：跟随系统、中文、英文。
+     * 选择后通过 ViewModel 持久化到 DataStore，
+     * LanguageManager 会自动更新应用的语言配置。
+     */
     private fun showLanguageDialog() {
         val languages = arrayOf(
             getString(R.string.language_system),
@@ -247,14 +316,36 @@ class SettingsFragment : Fragment() {
             .show()
     }
 
+    /**
+     * 显示模型配置对话框（新增/编辑共用）
+     *
+     * 对话框包含以下配置项：
+     * - 模型标签(tag)：显示名称
+     * - API 类型：OpenAI / Anthropic，影响后续表单项的显示
+     * - API URL：接口地址
+     * - API Key：认证密钥
+     * - 获取模型列表按钮：从 API 拉取可用模型列表（仅 OpenAI 类型）
+     * - 默认模型：从获取的列表中选择（OpenAI）或手动输入（Anthropic）
+     * - 上下文限制：自动检测或手动设置
+     * - 温度参数：通过滑块调节
+     * - 设为默认开关
+     *
+     * @param existing 非 null 时为编辑模式，预填充已有配置；null 时为新增模式
+     */
     private fun showModelDialog(existing: ModelConfig?) {
         val dialogBinding = DialogModelConfigBinding.inflate(layoutInflater)
 
+        /** 从 API 获取的模型 ID 列表 */
         var fetchedModels = mutableListOf<String>()
+        /** 当前选择的 API 类型 */
         var selectedApiType = existing?.apiType ?: API_TYPE_OPENAI
+        /** 当前选择的默认模型 */
         var selectedDefaultModel = existing?.defaultModel ?: ""
+        /** 自动检测到的上下文限制值 */
         var detectedContextLimit = existing?.detectedContextLimit?.takeIf { it > 0 }
+        /** 上下文限制是否为手动设置（用户编辑过输入框后为 true） */
         var contextLimitManual = existing?.contextLimitManuallySet != false
+        /** 是否抑制上下文限制输入框的文本变化监听（程序设置文本时避免触发手动标记） */
         var suppressContextWatcher = false
 
         val apiTypeLabels = listOf(

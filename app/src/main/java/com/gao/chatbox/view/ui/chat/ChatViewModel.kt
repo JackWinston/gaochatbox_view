@@ -35,6 +35,23 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
+/**
+ * 聊天页面的 ViewModel
+ *
+ * 核心职责：
+ * - 管理聊天消息列表（ChatItem）的状态
+ * - 处理消息发送和流式响应接收
+ * - 管理工具调用（网页搜索）的执行和结果回传
+ * - 上下文压缩：自动管理历史消息以适应模型上下文窗口
+ * - 自动为新对话生成标题
+ * - 管理附件（图片/文件）的挂载状态
+ * - 模型选择和配置管理
+ *
+ * 数据流：
+ * - 发送：用户输入 → ViewModel → ChatRepository → API → 流式响应
+ * - 接收：StreamEvent → ViewModel 更新 chatItems → Activity 观察并渲染
+ * - 持久化：消息通过 ChatDatabaseManager 保存到 Room 数据库
+ */
 class ChatViewModel(
     private val context: Context,
     private val chatRepository: ChatRepository,
@@ -47,6 +64,7 @@ class ChatViewModel(
     companion object {
         private const val DEFAULT_MAX_TOOL_CALL_ROUNDS = 8
 
+        // DataStore 偏好键
         private val KEY_WEB_SEARCH = booleanPreferencesKey("capability_web_search")
         private val KEY_MAX_TOOL_CALL_ROUNDS = intPreferencesKey("capability_max_tool_call_rounds")
         private val KEY_SHOW_CHAR_COUNT = booleanPreferencesKey("ui_show_char_count")
@@ -55,34 +73,50 @@ class ChatViewModel(
         private val KEY_SHOW_TIMESTAMP = booleanPreferencesKey("ui_show_timestamp")
     }
 
-    // UI State
+    // ==================== UI 状态 StateFlow ====================
+
+    /** 聊天消息列表，Activity 通过 collect 观察变化并渲染 */
     private val _chatItems = MutableStateFlow<List<ChatItem>>(emptyList())
     val chatItems: StateFlow<List<ChatItem>> = _chatItems
 
+    /** 是否正在流式传输中 */
     private val _isStreaming = MutableStateFlow(false)
     val isStreaming: StateFlow<Boolean> = _isStreaming
 
+    /** 等待响应的阶段：IDLE / THINKING / EXECUTING_TOOLS */
     private val _pendingResponsePhase = MutableStateFlow(PendingResponsePhase.IDLE)
     val pendingResponsePhase: StateFlow<PendingResponsePhase> = _pendingResponsePhase
 
+    /** 当前选择的模型名称 */
     private val _selectedModelName = MutableStateFlow("")
     val selectedModelName: StateFlow<String> = _selectedModelName
 
+    /** 网页搜索功能开关 */
     private val _webSearchEnabled = MutableStateFlow(false)
     val webSearchEnabled: StateFlow<Boolean> = _webSearchEnabled
 
+    /** 最大工具调用轮次 */
     private val _maxToolCallRounds = MutableStateFlow(DEFAULT_MAX_TOOL_CALL_ROUNDS)
     val maxToolCallRounds: StateFlow<Int> = _maxToolCallRounds
 
+    /** 对话标题 */
     private val _title = MutableStateFlow("")
     val title: StateFlow<String> = _title
 
+    /** 是否有待发送的附件 */
     private val _hasPendingAttachment = MutableStateFlow(false)
     val hasPendingAttachment: StateFlow<Boolean> = _hasPendingAttachment
 
+    /** 上下文压缩提示信息 */
     private val _contextCompressionHint = MutableStateFlow<String?>(null)
     val contextCompressionHint: StateFlow<String?> = _contextCompressionHint
 
+    /**
+     * 上下文使用信息
+     * @param currentTokens 当前已使用的 token 数
+     * @param contextLimit 模型的上下文限制
+     * @param percent 使用百分比（0-100）
+     */
     data class ContextUsageInfo(
         val currentTokens: Int = 0,
         val contextLimit: Int = 0,
@@ -92,46 +126,66 @@ class ChatViewModel(
     private val _contextUsage = MutableStateFlow(ContextUsageInfo())
     val contextUsage: StateFlow<ContextUsageInfo> = _contextUsage
 
+    /** 渲染设置（字符数/Token数/模型名/时间戳显示开关） */
     private val _renderSettings = MutableStateFlow(ChatRenderSettings())
     val renderSettings: StateFlow<ChatRenderSettings> = _renderSettings
 
-    // Internal state
+    // ==================== 内部状态 ====================
+
+    /** 对话 ID（0 表示新对话，>0 表示已有对话） */
     var conversationId: Long = 0L
         private set
     private var systemPromptContent: String = ""
     private var systemPromptTag: String = ""
+    /** 当前正在写入的助手消息数据库 ID */
     private var currentAssistantMessageId: Long = 0L
+    /** 流式传输中累积的内容文本 */
     private var accumulatedContent: String = ""
+    /** 流式传输的协程 Job，用于取消 */
     private var streamingJob: Job? = null
+    /** 上次 UI 更新时间戳（节流用，50ms 间隔） */
     private var lastUIUpdateTime: Long = 0L
+    /** 思考开始时间（用于显示等待时长） */
     private var thinkingStartTime: Long = 0L
+    /** 标题是否已自动生成 */
     private var titleGenerated: Boolean = false
+    /** 用户是否手动设置了标题 */
     private var hasCustomTitle: Boolean = false
+    /** 待处理的工具调用（按 index 累积参数） */
     private val pendingToolCalls = mutableMapOf<Int, ToolCallBuilder>()
+    /** 待发送的附件 */
     private var pendingAttachment: PendingAttachment? = null
+    /** 工具调用完成但模型无总结时的兜底消息 */
     private var pendingToolFallbackMessage: String? = null
+    /** 当前流式消息的 Item ID */
     private var activeStreamingItemId: String? = null
+    /** 当前工具调用轮次计数 */
     private var currentToolCallRoundCount = 0
+    /** 上下文压缩规划器 */
     private val contextCompressionPlanner = ContextCompressionPlanner()
 
+    /** 等待响应阶段枚举 */
     enum class PendingResponsePhase {
-        IDLE,
-        THINKING,
-        EXECUTING_TOOLS
+        IDLE,              // 空闲
+        THINKING,          // 等待模型响应（思考中）
+        EXECUTING_TOOLS    // 正在执行工具调用
     }
 
+    /** 工具调用构建器（流式接收参数时使用） */
     private data class ToolCallBuilder(
         var id: String = "",
         var name: String = "",
         val arguments: StringBuilder = StringBuilder()
     )
 
+    /** 工具执行结果 */
     private data class ToolExecutionOutcome(
         val toolCall: ToolCall,
         val result: String,
         val isError: Boolean
     )
 
+    /** 待发送附件数据 */
     private data class PendingAttachment(
         val displayName: String,
         val imageUri: String? = null,
@@ -140,6 +194,19 @@ class ChatViewModel(
         val fileContent: String? = null
     )
 
+    /**
+     * 初始化对话
+     *
+     * 由 Activity 在 onCreate 时调用。根据 conversationId 判断：
+     * - conversationId > 0: 加载已有对话的历史消息
+     * - conversationId == 0: 构建新对话的初始 Item 列表
+     *
+     * 同时初始化：网页搜索开关、UI 渲染设置、默认模型选择。
+     *
+     * @param conversationId 对话 ID（0 表示新对话）
+     * @param systemPromptContent 系统提示词内容
+     * @param systemPromptTag 系统提示词标签（角色名称）
+     */
     fun initConversation(
         conversationId: Long,
         systemPromptContent: String,
@@ -151,12 +218,12 @@ class ChatViewModel(
         _title.value = systemPromptTag
 
         viewModelScope.launch {
-            // Init web search from global setting
+            // 从全局设置初始化网页搜索开关
             _webSearchEnabled.value = dataStore.data.map { prefs ->
                 prefs[KEY_WEB_SEARCH] ?: false
             }.first()
 
-            // Init UI settings
+            // 持续监听 UI 渲染设置变化
             dataStore.data.collect { prefs ->
                 _renderSettings.value = ChatRenderSettings(
                     showCharCount = prefs[KEY_SHOW_CHAR_COUNT] ?: false,
@@ -169,12 +236,13 @@ class ChatViewModel(
         }
 
         viewModelScope.launch {
-            // Init default model
+            // 初始化默认模型
             val defaultConfig = modelConfigManager.getDefault()
             _selectedModelName.value = defaultConfig?.defaultModel?.ifEmpty { defaultConfig.models.firstOrNull() } ?: ""
 
             modelConfigManager.init()
 
+            // 根据 conversationId 决定加载已有对话还是新建
             if (conversationId > 0L) {
                 loadExistingConversation(conversationId)
             } else {
@@ -183,6 +251,11 @@ class ChatViewModel(
         }
     }
 
+    /**
+     * 构建新对话的初始 Item 列表
+     *
+     * 包含：初始时间戳 + 系统提示词（如果有的话）
+     */
     private fun buildInitialItems() {
         val initialItems = mutableListOf<ChatItem>()
         initialItems.add(ChatItemBuilder.buildInitialTimestamp())
@@ -294,6 +367,20 @@ class ChatViewModel(
 
     // region Send
 
+    /**
+     * 发送用户消息
+     *
+     * 完整流程：
+     * 1. 校验：非流式传输中、文本非空或有附件
+     * 2. 获取默认模型配置
+     * 3. 上下文压缩规划：计算历史消息和附件的压缩策略
+     * 4. 构建显示文本和请求文本（可能因压缩而不同）
+     * 5. 插入时间戳和用户消息到列表
+     * 6. 调用 ChatRepository 发送请求并收集流式响应
+     * 7. 处理流式事件：内容增量、工具调用、流结束、错误
+     *
+     * @param text 用户输入的文本
+     */
     fun sendMessage(text: String) {
         if (_isStreaming.value) return
         val attachment = pendingAttachment
@@ -311,6 +398,7 @@ class ChatViewModel(
             val now = System.currentTimeMillis()
             val contextLimit = resolveContextLimit(config)
             val displayText = buildDisplayMessageText(text, attachment)
+            // 执行上下文压缩规划
             val plannedRequest = contextCompressionPlanner.planInitialRequest(
                 previousItems = items,
                 text = text,
@@ -392,6 +480,20 @@ class ChatViewModel(
         }
     }
 
+    /**
+     * 收集流式响应事件
+     *
+     * 处理四种事件类型：
+     * - ContentDelta: 内容增量 → 累积内容并节流更新 UI（50ms 间隔）
+     * - ToolCallDelta: 工具调用参数增量 → 累积到 pendingToolCalls
+     * - StreamEnd: 流结束 → 如果有待处理工具调用则执行，否则完成
+     * - Error: 错误 → 显示错误消息并结束
+     *
+     * @param result 流式响应结果
+     * @param config 当前模型配置
+     * @param systemPrompt 系统提示词
+     * @param allowToolCalls 是否允许工具调用
+     */
     private suspend fun collectStream(
         result: StreamResult,
         config: ModelConfig,
@@ -403,6 +505,7 @@ class ChatViewModel(
                 is StreamEvent.ContentDelta -> {
                     accumulatedContent += event.text
                     _pendingResponsePhase.value = PendingResponsePhase.IDLE
+                    // 节流：50ms 间隔更新 UI，避免过于频繁的列表刷新
                     val now = System.currentTimeMillis()
                     if (now - lastUIUpdateTime >= 50) {
                         lastUIUpdateTime = now
@@ -415,6 +518,7 @@ class ChatViewModel(
                         finishStreaming()
                         return@collect
                     }
+                    // 按 index 累积工具调用参数（流式传输中参数分片到达）
                     val builder = pendingToolCalls.getOrPut(event.index) { ToolCallBuilder() }
                     event.id?.let { builder.id = it }
                     event.functionName?.let { builder.name = it }
@@ -422,6 +526,7 @@ class ChatViewModel(
                 }
                 is StreamEvent.StreamEnd -> {
                     if (pendingToolCalls.isNotEmpty()) {
+                        // 检查工具调用轮次限制
                         if (currentToolCallRoundCount >= _maxToolCallRounds.value) {
                             pendingToolCalls.clear()
                             showErrorMessage("已达到连续工具调用最大轮次（${_maxToolCallRounds.value}次），已停止继续调用工具。")

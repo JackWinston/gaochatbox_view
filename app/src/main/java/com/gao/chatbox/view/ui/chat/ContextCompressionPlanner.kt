@@ -6,36 +6,76 @@ import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
+/**
+ * 上下文压缩规划器
+ *
+ * 负责在发送消息前规划如何将历史消息、附件内容、系统提示词等
+ * 压缩到模型的上下文窗口限制内。
+ *
+ * 压缩策略：
+ * 1. 计算输入预算 = 上下文限制 - 输出预留 - 工具预留 - 图片预留 - 安全预留
+ * 2. 历史消息压缩：优先保留最近的消息，较早的消息压缩为摘要
+ * 3. 附件内容压缩：保留文件头部、尾部和关键词命中片段
+ * 4. 用户消息截断：超出预算时按比例保留头尾
+ *
+ * Token 估算规则：
+ * - ASCII 字符：约 0.25 token/字符
+ * - 中文等非 ASCII 字符：约 1 token/字符
+ * - 换行符：约 0.25 token/字符
+ */
 class ContextCompressionPlanner {
 
+    /**
+     * 压缩报告
+     *
+     * 记录压缩过程的详细信息，用于调试日志和 UI 提示。
+     */
     data class CompressionReport(
-        val contextLimit: Int,
-        val inputBudget: Int,
-        val estimatedInputTokens: Int,
-        val rawHistoryMessages: Int,
-        val keptHistoryMessages: Int,
-        val summarizedHistoryMessages: Int,
-        val attachmentStrategy: String,
-        val hasImageAttachment: Boolean,
-        val notes: List<String>
+        val contextLimit: Int,           // 模型上下文限制
+        val inputBudget: Int,            // 计算出的输入预算
+        val estimatedInputTokens: Int,   // 估算的输入 token 数
+        val rawHistoryMessages: Int,     // 原始历史消息数
+        val keptHistoryMessages: Int,    // 保留的历史消息数
+        val summarizedHistoryMessages: Int, // 被压缩为摘要的消息数
+        val attachmentStrategy: String,  // 附件策略：none/full/excerpt
+        val hasImageAttachment: Boolean, // 是否有图片附件
+        val notes: List<String>          // 压缩说明
     )
 
+    /**
+     * 初始请求规划结果
+     *
+     * @param userMessage 处理后的用户消息（可能包含压缩后的附件内容）
+     * @param history 压缩后的历史消息列表
+     * @param report 压缩报告
+     */
     data class PlannedInitialRequest(
         val userMessage: String,
         val history: List<MessageContext>,
         val report: CompressionReport
     )
 
+    /**
+     * 工具续轮请求规划结果
+     *
+     * 在工具调用完成后，需要将工具结果发送给模型继续生成。
+     * 此时需要重新规划历史消息的压缩。
+     *
+     * @param history 压缩后的历史消息（OpenAI 格式）
+     * @param report 压缩报告
+     */
     data class PlannedToolRequest(
         val history: List<OpenAiChatMessage>,
         val report: CompressionReport
     )
 
+    /** 内部消息表示 */
     private data class ConversationMessage(
         val role: String,
         val content: String
     )
 
+    /** 历史消息压缩计划 */
     private data class HistoryPlan(
         val messages: List<ConversationMessage>,
         val rawMessageCount: Int,
@@ -43,11 +83,34 @@ class ContextCompressionPlanner {
         val summarizedMessageCount: Int
     )
 
+    /** 附件处理计划 */
     private data class AttachmentPlan(
         val message: String,
-        val strategy: String
+        val strategy: String  // none: 无附件, full: 完整保留, excerpt: 压缩摘录
     )
 
+    /**
+     * 规划初始请求的上下文压缩
+     *
+     * 处理流程：
+     * 1. 归一化上下文限制（最低 8192）
+     * 2. 从 ChatItem 列表提取历史对话消息
+     * 3. 计算总输入预算（扣除输出/工具/图片/安全预留）
+     * 4. 分配用户消息预算（上限 24576 token）
+     * 5. 处理附件内容（完整保留或压缩摘录）
+     * 6. 计算剩余预算给历史消息
+     * 7. 压缩历史消息（保留最近的，较早的转为摘要）
+     *
+     * @param previousItems 当前聊天列表中的所有 ChatItem
+     * @param text 用户输入的文本
+     * @param attachmentName 附件文件名
+     * @param fileContent 附件文本内容
+     * @param systemPrompt 系统提示词
+     * @param contextLimit 模型的上下文 token 限制
+     * @param enableWebSearch 是否启用网页搜索（影响工具预留）
+     * @param hasImageAttachment 是否有图片附件（影响图片预留）
+     * @return 规划结果，包含处理后的用户消息、压缩后的历史和压缩报告
+     */
     fun planInitialRequest(
         previousItems: List<ChatItem>,
         text: String,
@@ -149,6 +212,18 @@ class ContextCompressionPlanner {
         )
     }
 
+    /**
+     * 计算输入 token 预算
+     *
+     * 从上下文限制中扣除各项预留：
+     * - outputReserve: 模型输出预留（至少 4096，最多 16384）
+     * - toolReserve: 工具调用预留（网页搜索启用时 4096，否则 1024）
+     * - imageReserve: 图片附件预留（3072）
+     * - safetyReserve: 安全余量（至少 1024，或上下文的 5%）
+     * - reservedExtraTokens: 工具续轮中已确定要发送的额外文本
+     *
+     * @return 可用于输入的 token 预算（最低 1024）
+     */
     private fun calculateInputBudget(
         contextLimit: Int,
         enableWebSearch: Boolean,
@@ -216,6 +291,19 @@ class ContextCompressionPlanner {
         return AttachmentPlan(message = compressed, strategy = "excerpt")
     }
 
+    /**
+     * 压缩历史消息以适应 token 预算
+     *
+     * 压缩策略（从最近到最旧遍历）：
+     * 1. 如果原始 token 总量在预算内，直接保留全部
+     * 2. 从最新消息向前遍历，逐条保留直到预算耗尽
+     * 3. 被丢弃的较早消息压缩为摘要（保留最近 3 条用户/助手消息的片段）
+     * 4. 如果加上摘要后仍超预算，优先移除中间消息，最后截断摘要
+     *
+     * @param history 原始历史消息列表
+     * @param budgetTokens 可用的 token 预算
+     * @return 压缩计划，包含最终保留的消息和统计信息
+     */
     private fun compressHistory(history: List<ConversationMessage>, budgetTokens: Int): HistoryPlan {
         if (history.isEmpty() || budgetTokens <= 0) {
             return HistoryPlan(
@@ -236,9 +324,11 @@ class ContextCompressionPlanner {
             )
         }
 
+        // 为摘要预留空间（最多 2048 token）
         val reserveForSummary = min(2_048, max(256, budgetTokens / 6))
         val keptReversed = mutableListOf<ConversationMessage>()
         var usedTokens = 0
+        // 从最新消息向前遍历，优先保留最近的消息
         history.asReversed().forEachIndexed { index, message ->
             val remainingOldMessages = history.size - keptReversed.size - 1
             val reserve = if (remainingOldMessages > 0) reserveForSummary else 0
@@ -264,6 +354,7 @@ class ContextCompressionPlanner {
             )
         }
 
+        // 构建较早历史的摘要
         val olderMessages = history.take(summarizedCount)
         val summaryBudget = max(192, budgetTokens - estimateTokens(keptMessages))
         val summary = buildHistorySummary(olderMessages, summaryBudget)
@@ -273,6 +364,7 @@ class ContextCompressionPlanner {
         }
         plannedMessages += keptMessages
 
+        // 如果加上摘要后仍超预算，逐步移除中间消息
         while (plannedMessages.isNotEmpty() &&
             estimateTokens(plannedMessages) > budgetTokens &&
             plannedMessages.size > 1
@@ -286,6 +378,7 @@ class ContextCompressionPlanner {
             plannedMessages.removeAt(removableIndex)
         }
 
+        // 最后手段：截断摘要内容
         if (plannedMessages.isNotEmpty() && estimateTokens(plannedMessages) > budgetTokens) {
             val summaryMessage = plannedMessages.first()
             if (summaryMessage.role == "assistant" && summaryMessage.content.startsWith("[较早历史摘要]")) {
@@ -438,6 +531,16 @@ class ContextCompressionPlanner {
         return estimateTokens(message.content) + 6
     }
 
+    /**
+     * 估算文本的 token 数量
+     *
+     * 粗略估算规则：
+     * - 换行符：0.25 token（被压缩为特殊标记）
+     * - ASCII 字符（英文字母、数字、标点）：0.25 token（通常 4 个字符约 1 token）
+     * - 非 ASCII 字符（中文、日文等）：1 token（通常 1 个字符约 1 token）
+     *
+     * 注意：这是粗略估算，实际 token 数取决于具体的 tokenizer。
+     */
     private fun estimateTokens(text: String): Int {
         if (text.isBlank()) return 0
         var score = 0.0

@@ -24,12 +24,28 @@ import com.gao.chatbox.view.ui.chat.ChatActivity
 import com.gao.chatbox.view.ui.debug.DebugLogActivity
 import kotlinx.coroutines.launch
 
+/**
+ * 历史记录页面 Fragment
+ *
+ * 功能概述：
+ * - 展示所有历史对话列表，每条显示标题、最后一条消息预览、相对时间戳
+ * - 支持关键词搜索对话（按标题/消息内容模糊匹配）
+ * - 支持按标签(tag)筛选对话
+ * - 点击对话项进入聊天详情页（ChatActivity）
+ * - 长按对话项弹出菜单：查看调试日志 / 删除对话
+ *
+ * 数据流：Fragment → ViewModel → ChatDatabaseManager → Room Database
+ */
 class HistoryFragment : Fragment() {
 
+    /** ViewBinding 引用，onDestroyView 时置空防止内存泄漏 */
     private var _binding: FragmentHistoryBinding? = null
     private val binding get() = _binding!!
 
+    /** 对话列表适配器 */
     private var adapter: ConversationAdapter? = null
+
+    /** ViewModel，通过 Hilt Factory 注入 ChatDatabaseManager 依赖 */
     private val viewModel: HistoryViewModel by viewModels {
         (requireActivity().application as ChatBoxApp).appComponent.historyViewModelFactory()
     }
@@ -57,6 +73,10 @@ class HistoryFragment : Fragment() {
         _binding = null
     }
 
+    /**
+     * 设置 Toolbar 菜单项点击事件
+     * 筛选按钮（action_filter）点击后弹出标签筛选对话框
+     */
     private fun setupToolbar() {
         binding.toolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
@@ -69,6 +89,11 @@ class HistoryFragment : Fragment() {
         }
     }
 
+    /**
+     * 设置搜索框
+     * - 实时监听文本变化，每次输入都触发 ViewModel 更新关键词并重新查询
+     * - 点击搜索键盘按钮时收起软键盘
+     */
     private fun setupSearch() {
         binding.etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -87,6 +112,11 @@ class HistoryFragment : Fragment() {
         }
     }
 
+    /**
+     * 设置 RecyclerView
+     * - 点击对话项 → 打开已有对话的聊天页面
+     * - 长按对话项 → 弹出操作菜单（调试日志 / 删除）
+     */
     private fun setupRecyclerView() {
         adapter = ConversationAdapter(
             onItemClick = { item -> openConversation(item) },
@@ -98,6 +128,15 @@ class HistoryFragment : Fragment() {
         }
     }
 
+    /**
+     * 观察 ViewModel 中的对话列表数据变化
+     *
+     * 数据流程：
+     * 1. ViewModel 通过 Room Flow 获取所有对话（或按关键词搜索）
+     * 2. Fragment 收到数据后，再根据当前标签筛选条件进行二次过滤
+     * 3. 将过滤后的列表提交给适配器渲染
+     * 4. 如果列表为空，显示空状态提示文本
+     */
     private fun observeData() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -117,6 +156,12 @@ class HistoryFragment : Fragment() {
         }
     }
 
+    /**
+     * 显示标签筛选对话框
+     *
+     * 从 ViewModel 获取所有已使用的标签列表，加上"全部"选项，
+     * 以单选列表形式展示。选择后更新筛选条件并刷新列表。
+     */
     private fun showFilterDialog() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.tags.collect { tags ->
@@ -148,6 +193,12 @@ class HistoryFragment : Fragment() {
         }
     }
 
+    /**
+     * 更新筛选标签的显示状态
+     *
+     * @param filter 当前筛选标签，null 表示未筛选（隐藏标签）
+     * 点击已激活的筛选标签可清除筛选
+     */
     private fun updateFilterLabel(filter: String?) {
         if (filter != null) {
             binding.tvActiveFilter.text = "筛选: $filter"
@@ -161,6 +212,10 @@ class HistoryFragment : Fragment() {
         }
     }
 
+    /**
+     * 打开已有对话的聊天页面
+     * 传入对话 ID、系统提示词内容和标签，ChatActivity 会加载历史消息
+     */
     private fun openConversation(item: ConversationWithLastMessage) {
         val conv = item.conversation
         ChatActivity.startExisting(
@@ -172,6 +227,10 @@ class HistoryFragment : Fragment() {
         )
     }
 
+    /**
+     * 显示长按操作菜单
+     * 提供两个选项：查看调试日志、删除对话
+     */
     private fun showLongPressMenu(item: ConversationWithLastMessage) {
         val items = arrayOf(
             getString(R.string.menu_debug),
@@ -188,10 +247,12 @@ class HistoryFragment : Fragment() {
             .show()
     }
 
+    /** 打开调试日志页面，查看该对话的 API 请求/响应日志 */
     private fun openDebugLog(item: ConversationWithLastMessage) {
         DebugLogActivity.start(requireContext(), item.conversation.id)
     }
 
+    /** 显示删除确认对话框，确认后删除对话及其关联的日志文件 */
     private fun showDeleteConfirm(item: ConversationWithLastMessage) {
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.delete_conversation_title)

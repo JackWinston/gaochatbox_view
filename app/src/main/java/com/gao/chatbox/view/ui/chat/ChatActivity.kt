@@ -38,14 +38,39 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * 聊天页面 Activity
+ *
+ * 核心功能：
+ * - 发送用户消息并接收 AI 流式响应
+ * - 支持多模态输入（文本 + 图片/文件附件）
+ * - 支持 Markdown 渲染（表格、链接、删除线等）
+ * - 支持工具调用（网页搜索）的展示和结果回传
+ * - 上下文压缩：自动管理历史消息以适应模型上下文窗口
+ * - 模型选择：支持切换不同的 AI 模型配置
+ * - 流式传输控制：支持停止正在生成的响应
+ * - 对话管理：编辑标题、删除对话、新建对话
+ *
+ * 架构：Activity → ViewModel → ChatRepository → API
+ * 实现 ChatAdapter.ChatAdapterListener 接口以处理适配器中的用户交互事件。
+ */
 class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
+    /** 滚动目标类型枚举 */
     private enum class ScrollTarget {
-        NONE,
-        KEEP_BOTTOM,
-        TOP_OF_LAST_ITEM
+        NONE,              // 无滚动
+        KEEP_BOTTOM,       // 保持在底部（流式传输时）
+        TOP_OF_LAST_ITEM   // 将最后一项滚动到顶部（新消息出现时）
     }
 
+    /**
+     * 滚动请求数据类
+     *
+     * @param target 滚动目标类型
+     * @param expiresAtMs 请求过期时间（1.5 秒后自动失效）
+     * @param attempts 已尝试次数（最多 6 次）
+     * @param applyScheduled 是否已安排执行（防止重复 post）
+     */
     private data class ScrollRequest(
         val target: ScrollTarget = ScrollTarget.NONE,
         val expiresAtMs: Long = 0L,
@@ -56,11 +81,19 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     }
 
     companion object {
+        // Intent Extra 键名
         private const val EXTRA_SYSTEM_PROMPT_CONTENT = "system_prompt_content"
         private const val EXTRA_SYSTEM_PROMPT_TAG = "system_prompt_tag"
         private const val EXTRA_CONVERSATION_ID = "conversation_id"
         private const val EXTRA_DISPLAY_TAG = "display_tag"
 
+        /**
+         * 启动新对话
+         *
+         * @param context 上下文
+         * @param content 系统提示词内容
+         * @param tag 系统提示词标签（角色名称）
+         */
         fun start(context: Context, content: String, tag: String) {
             val intent = Intent(context, ChatActivity::class.java).apply {
                 putExtra(EXTRA_SYSTEM_PROMPT_CONTENT, content)
@@ -69,6 +102,15 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             context.startActivity(intent)
         }
 
+        /**
+         * 启动已有对话
+         *
+         * @param context 上下文
+         * @param conversationId 对话 ID
+         * @param systemPromptContent 系统提示词内容
+         * @param systemPromptTag 系统提示词标签
+         * @param displayTag 显示标签（对话标题）
+         */
         fun startExisting(
             context: Context,
             conversationId: Long,
@@ -86,21 +128,33 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         }
     }
 
+    /** ViewBinding 引用 */
     private lateinit var binding: ActivityChatBinding
+
+    /** 聊天消息列表适配器 */
     private lateinit var chatAdapter: ChatAdapter
+
+    /** 上一次渲染的 Item 列表快照，用于增量更新判断 */
     private var lastRenderedItems: List<ChatItem> = emptyList()
+
+    /** ViewModel，通过 Hilt Factory 注入多个依赖 */
     private val viewModel: ChatViewModel by viewModels {
         (application as ChatBoxApp).appComponent.chatViewModelFactory()
     }
 
+    /** 当前滚动请求状态 */
     private var scrollRequest = ScrollRequest()
+
+    /** 模型选择对话框引用（用于 dismiss） */
     private var dialog: AlertDialog? = null
 
+    /** 图片选择器启动器，选择后触发 onImagePicked 处理 */
     private val imagePickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             uri?.let { onImagePicked(it) }
         }
 
+    /** 文件选择器启动器，选择后触发 onFilePicked 处理 */
     private val filePickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             uri?.let { onFilePicked(it) }
@@ -171,6 +225,20 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         observeViewModel()
     }
 
+    /**
+     * 观察 ViewModel 中的所有状态变化
+     *
+     * 并行收集多个 StateFlow：
+     * - chatItems: 聊天消息列表 → 增量更新 RecyclerView
+     * - isStreaming: 是否正在流式传输 → 控制发送按钮状态
+     * - pendingResponsePhase: 等待响应阶段 → 显示"思考中"/"执行工具中"
+     * - contextCompressionHint: 上下文压缩提示 → 显示压缩信息
+     * - selectedModelName: 当前模型名称 → 更新底部模型选择按钮文本
+     * - webSearchEnabled: 网页搜索开关 → 更新搜索按钮颜色
+     * - title: 对话标题 → 更新 Toolbar 标题
+     * - contextUsage: 上下文使用情况 → 更新进度条
+     * - renderSettings: 渲染设置 → 更新适配器的显示配置
+     */
     private fun observeViewModel() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -290,17 +358,28 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         }
     }
 
+    /**
+     * 处理聊天列表更新
+     *
+     * 优化策略：
+     * 1. 增量流式更新：如果只是 StreamingMessage 的 content 变化，
+     *    直接更新该 ViewHolder，避免整个列表刷新
+     * 2. 全量更新：其他情况使用 submitList + DiffUtil 差异更新
+     * 3. 滚动控制：根据当前滚动位置和更新类型决定滚动行为
+     */
     private fun handleChatItemsUpdated(items: List<ChatItem>) {
         val streamedItem = items.lastOrNull() as? ChatItem.StreamingMessage
         val incrementalStreamingUpdate = isStreamingContentOnlyUpdate(lastRenderedItems, items)
         val keepBottom = shouldMaintainBottomPosition()
 
+        // 增量更新：仅流式内容变化时，直接操作 ViewHolder
         if (incrementalStreamingUpdate && streamedItem != null) {
             chatAdapter.updateStreamingMessage(binding.rvMessages, streamedItem)
             lastRenderedItems = items
             return
         }
 
+        // 全量更新：计算滚动目标 → 同步流式状态 → 提交新列表
         requestScroll(determineScrollTargetForItems(keepBottom, lastRenderedItems, items))
         chatAdapter.syncStreamingRenderStates(items)
         chatAdapter.submitList(items) {
@@ -384,18 +463,21 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         return false
     }
 
-    // region ChatAdapterListener
+    // region ChatAdapterListener - 适配器事件回调
 
+    /** 切换系统提示词的展开/折叠状态 */
     override fun onSystemPromptToggle(position: Int) {
         viewModel.toggleSystemPrompt(position)
     }
 
+    /** 长按消息内容 → 复制到剪贴板 */
     override fun onContentLongPress(content: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("chat_content", content))
         Toast.makeText(this, R.string.chat_copy_success, Toast.LENGTH_SHORT).show()
     }
 
+    /** 停止流式传输 → 弹出确认对话框 */
     override fun onStreamingStop() {
         if (!viewModel.isStreaming.value) return
         MaterialAlertDialogBuilder(this)
@@ -410,15 +492,24 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     // endregion
 
-    // region Send
+    // region Send - 发送消息
 
+    /**
+     * 发送消息处理
+     *
+     * 校验逻辑：
+     * - 文本非空 或 有待发送附件
+     * - 当前未在流式传输中
+     *
+     * 处理流程：清空输入框 → 收起键盘 → 调用 ViewModel 发送
+     */
     private fun onSend() {
         val text = binding.etInput.text?.toString()?.trim() ?: return
         if ((text.isEmpty() && !viewModel.hasPendingAttachment.value) || viewModel.isStreaming.value) return
 
         binding.etInput.text?.clear()
 
-        // 关闭键盘
+        // 收起软键盘
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(binding.etInput.windowToken, 0)
 
@@ -427,8 +518,9 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     // endregion
 
-    // region Scroll
+    // region Scroll - 滚动控制
 
+    /** 平滑滚动到底部 */
     private fun scrollToBottom() {
         val itemCount = chatAdapter.itemCount
         val remainingScroll = binding.rvMessages.computeVerticalScrollRange() -
@@ -439,6 +531,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         }
     }
 
+    /** 将最后一项滚动到顶部（offset=0），用于新消息出现时的定位 */
     private fun scrollLastItemToTop() {
         val itemCount = chatAdapter.itemCount
         if (itemCount <= 0) return
@@ -522,8 +615,12 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     // endregion
 
-    // region New Chat
+    // region New Chat - 新建对话
 
+    /**
+     * 新建对话处理
+     * 如果当前没有消息，直接重启；否则弹出确认对话框
+     */
     private fun onNewChat() {
         val items = viewModel.chatItems.value
         if (items.none { it is ChatItem.UserMessage || it is ChatItem.AssistantMessage }) {
@@ -540,6 +637,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             .show()
     }
 
+    /** 关闭当前 Activity 并重新启动，开始同一角色的新对话 */
     private fun restartChat() {
         finish()
         val systemPromptContent = intent.getStringExtra(EXTRA_SYSTEM_PROMPT_CONTENT) ?: ""
@@ -549,8 +647,17 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     // endregion
 
-    // region Image & File picker
+    // region Image & File picker - 图片和文件选择
 
+    /**
+     * 处理选中的图片
+     *
+     * 流程：
+     * 1. 获取持久化读取权限
+     * 2. 解码图片并缩放到最大 1024px
+     * 3. 压缩为 JPEG 并转为 Base64
+     * 4. 通过 ViewModel 挂载到下一条消息
+     */
     private fun onImagePicked(uri: Uri) {
         try {
             persistReadPermission(uri)
@@ -591,6 +698,12 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         }
     }
 
+    /**
+     * 处理选中的文件
+     *
+     * 当前仅支持文本文件（mimeType 以 text/ 开头）。
+     * 文件内容会在发送时作为附件拼接到用户消息中。
+     */
     private fun onFilePicked(uri: Uri) {
         val mimeType = contentResolver.getType(uri).orEmpty()
         if (!mimeType.startsWith("text/")) {
@@ -619,8 +732,12 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     // endregion
 
-    // region Model Selector
+    // region Model Selector - 模型选择器
 
+    /**
+     * 显示模型选择对话框
+     * 从 ViewModel 获取所有模型配置，构建可展开的分组列表
+     */
     private fun showModelSelectorDialog() {
         lifecycleScope.launch {
             val configs = viewModel.getModelConfigs()
@@ -633,6 +750,15 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         }
     }
 
+    /**
+     * 构建并显示模型选择对话框
+     *
+     * 使用 ExpandableListView 展示模型配置分组：
+     * - 分组标题：配置名称（默认配置标记"(默认)"）
+     * - 子项：该配置下的模型列表（默认模型标记"✓"）
+     *
+     * 选择模型后更新 ViewModel 的当前模型，并将该配置设为默认。
+     */
     private fun showModelSelectorDialog(configs: List<com.gao.chatbox.view.data.model.ModelConfig>) {
 
         val groupList = mutableListOf<Map<String, String>>()
@@ -682,6 +808,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             clipToPadding = false
         }
 
+        // 展开所有分组
         for (i in 0 until adapter.groupCount) {
             listView.expandGroup(i)
         }
@@ -710,8 +837,12 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     // endregion
 
-    // region Edit Title
+    // region Edit Title - 编辑标题
 
+    /**
+     * 显示编辑对话标题对话框
+     * 预填充当前标题，确认后通过 ViewModel 更新
+     */
     private fun showEditTitleDialog() {
         val currentTitle = viewModel.title.value
         val editText = android.widget.EditText(this).apply {
@@ -734,8 +865,12 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     // endregion
 
-    // region Delete
+    // region Delete - 删除对话
 
+    /**
+     * 显示删除对话确认框
+     * 确认后通过 ViewModel 删除对话并关闭页面
+     */
     private fun showDeleteConfirmDialog() {
         AlertDialog.Builder(this)
             .setTitle(R.string.delete_conversation_confirm_title)
@@ -751,6 +886,10 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     // endregion
 
+    /**
+     * 查询 URI 对应的文件显示名称
+     * 通过 ContentResolver 查询 OpenableColumns.DISPLAY_NAME
+     */
     private fun queryDisplayName(uri: Uri): String? {
         val cursor: Cursor? = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
         return cursor?.use {
@@ -762,6 +901,10 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         }
     }
 
+    /**
+     * 获取 URI 的持久化读取权限
+     * 部分 DocumentProvider 不支持持久化权限，捕获 SecurityException 忽略
+     */
     private fun persistReadPermission(uri: Uri) {
         try {
             contentResolver.takePersistableUriPermission(

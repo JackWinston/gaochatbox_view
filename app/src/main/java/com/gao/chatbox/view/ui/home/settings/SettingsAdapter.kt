@@ -9,45 +9,87 @@ import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.model.ModelConfig
 import com.google.android.material.materialswitch.MaterialSwitch
 
+/**
+ * 设置页面列表适配器
+ *
+ * 使用 BaseMultiItemAdapter 实现多类型 Item 渲染，支持三种分组：
+ * - MODEL: 模型配置列表 + 添加按钮
+ * - UI: 主题、语言、字符数/Token数/模型名/时间戳显示开关
+ * - CAPABILITY: 网页搜索开关、最大工具调用轮次设置
+ *
+ * 每个分组支持折叠/展开，通过 expandedSections 集合管理展开状态。
+ * 复用 item_section_header 布局渲染 Header、UiSwitch、CapabilitySwitch、CapabilityAction 四种类型。
+ */
 class SettingsAdapter(
+    /** 点击模型项的回调 */
     private val onModelClick: (ModelConfig) -> Unit,
+    /** 长按模型项的回调 */
     private val onModelLongClick: (View, ModelConfig) -> Unit,
+    /** 点击"添加模型"按钮的回调 */
     private val onAddModelClick: () -> Unit,
+    /** UI 开关变化的回调 */
     private val onUiSwitchChanged: (UiSetting, Boolean) -> Unit,
+    /** 能力开关变化的回调 */
     private val onCapabilitySwitchChanged: (CapabilitySetting, Boolean) -> Unit,
+    /** 点击最大工具调用轮次的回调 */
     private val onMaxToolCallRoundsClick: () -> Unit,
+    /** 点击语言设置的回调 */
     private val onLanguageClick: () -> Unit,
+    /** 点击主题设置的回调 */
     private val onThemeClick: () -> Unit
 ) : BaseMultiItemAdapter<SettingsAdapter.SettingsItem>() {
 
     companion object {
+        /** 分组头部类型（也用于 UiSwitch、CapabilitySwitch、CapabilityAction） */
         const val TYPE_HEADER = 0
+        /** 模型配置项类型 */
         const val TYPE_MODEL_ITEM = 1
+        /** 添加模型按钮类型 */
         const val TYPE_ADD_MODEL = 2
     }
 
+    /** 设置分组枚举 */
     enum class Section { MODEL, UI, CAPABILITY }
+
+    /** UI 设置项枚举 */
     enum class UiSetting { CHAR_COUNT, TOKEN_COUNT, MODEL_NAME, TIMESTAMP, LANGUAGE, THEME }
+
+    /** 能力设置项枚举 */
     enum class CapabilitySetting { WEB_SEARCH, MAX_TOOL_CALL_ROUNDS }
 
+    /** 密封类定义所有可能的设置 Item 类型 */
     sealed class SettingsItem {
+        /** 分组头部（可折叠/展开） */
         class Header(val section: Section) : SettingsItem()
+        /** 模型配置项 */
         class Model(val config: ModelConfig) : SettingsItem()
+        /** 添加模型按钮 */
         class AddModel : SettingsItem()
+        /** UI 开关设置项 */
         class UiSwitch(val setting: UiSetting) : SettingsItem()
+        /** 能力开关设置项 */
         class CapabilitySwitch(val setting: CapabilitySetting) : SettingsItem()
+        /** 能力操作设置项（如点击弹出对话框） */
         class CapabilityAction(val setting: CapabilitySetting) : SettingsItem()
     }
 
+    /** 当前展开的分组集合，默认展开 MODEL 分组 */
     private val expandedSections = mutableSetOf(Section.MODEL)
+
+    /** 模型配置列表缓存 */
     private var models = listOf<ModelConfig>()
 
+    // UI 偏好设置状态（由 Fragment 从 ViewModel 收集后设置）
     var showCharCount = false
     var showTokenCount = false
     var showModelName = false
     var showTimestamp = false
+
+    // 能力设置状态
     var webSearchEnabled = false
     var maxToolCallRounds = 8
+
+    // 语言和主题设置状态
     var currentLanguage = "system"
     var currentTheme = "system"
 
@@ -121,6 +163,12 @@ class SettingsAdapter(
         })
     }
 
+    /**
+     * 绑定分组头部
+     *
+     * 显示分组标题和展开/收起箭头图标。
+     * 点击头部切换展开状态，箭头带有旋转动画。
+     */
     private fun bindHeader(holder: QuickViewHolder, item: SettingsItem.Header) {
         val section = item.section
         val isExpanded = expandedSections.contains(section)
@@ -133,6 +181,7 @@ class SettingsAdapter(
             }
         )
 
+        // 展开箭头旋转动画（展开时旋转 180 度）
         holder.getView<View>(R.id.iv_expand).animate()
             .rotation(if (isExpanded) 180f else 0f)
             .setDuration(200)
@@ -143,6 +192,15 @@ class SettingsAdapter(
         holder.itemView.setOnClickListener { toggleSection(section) }
     }
 
+    /**
+     * 绑定 UI 开关设置项
+     *
+     * 根据 setting 类型显示不同的标题和开关状态。
+     * LANGUAGE 和 THEME 特殊处理：显示当前值文本，点击弹出选择对话框。
+     * 其他项显示 Switch 开关，切换时通过回调通知 Fragment。
+     *
+     * 注意：设置 OnCheckedChangeListener 前先置空，避免复用 ViewHolder 时触发旧回调。
+     */
     private fun bindUiSwitch(holder: QuickViewHolder, item: SettingsItem.UiSwitch) {
         holder.setGone(R.id.iv_expand, true)
         holder.setGone(R.id.switch_section, false)
@@ -199,6 +257,7 @@ class SettingsAdapter(
                 }
             }
 
+            // 语言设置：显示当前语言名称，点击弹出选择对话框
             UiSetting.LANGUAGE -> {
                 val context = holder.itemView.context
                 val languageName = when (currentLanguage) {
@@ -215,6 +274,7 @@ class SettingsAdapter(
                 holder.itemView.setOnClickListener { onLanguageClick() }
             }
 
+            // 主题设置：显示当前主题名称，点击弹出选择对话框
             UiSetting.THEME -> {
                 val context = holder.itemView.context
                 val themeName = when (currentTheme) {
@@ -232,11 +292,16 @@ class SettingsAdapter(
             }
         }
 
+        // 非 LANGUAGE/THEME 项清除点击监听（开关由 Switch 控制）
         if (item.setting != UiSetting.LANGUAGE && item.setting != UiSetting.THEME) {
             holder.itemView.setOnClickListener(null)
         }
     }
 
+    /**
+     * 绑定能力开关设置项（如网页搜索）
+     * 使用 Switch 控制开关状态
+     */
     private fun bindCapabilitySwitch(holder: QuickViewHolder, item: SettingsItem.CapabilitySwitch) {
         holder.setGone(R.id.iv_expand, true)
         holder.setGone(R.id.switch_section, false)
@@ -263,6 +328,10 @@ class SettingsAdapter(
         holder.itemView.setOnClickListener(null)
     }
 
+    /**
+     * 绑定能力操作设置项（如最大工具调用轮次）
+     * 点击整行弹出数值输入对话框
+     */
     private fun bindCapabilityAction(holder: QuickViewHolder, item: SettingsItem.CapabilityAction) {
         holder.setGone(R.id.iv_expand, true)
         holder.setGone(R.id.switch_section, true)
@@ -284,15 +353,27 @@ class SettingsAdapter(
         }
     }
 
+    /** 更新模型列表并重建 Item 列表 */
     fun setModels(newModels: List<ModelConfig>) {
         models = newModels
         rebuildItems()
     }
 
+    /**
+     * 重建整个设置列表的 Item 数据
+     *
+     * 按分组顺序生成 Item 列表：
+     * 1. MODEL 分组：Header + 模型列表 + 添加按钮
+     * 2. UI 分组：Header + 主题/语言/各显示开关
+     * 3. CAPABILITY 分组：Header + 网页搜索开关 + 工具调用轮次
+     *
+     * 每个分组只在展开状态下才添加子项。
+     * 最终通过 submitList 提交给 BaseMultiItemAdapter 渲染。
+     */
     fun rebuildItems() {
         val newItems = mutableListOf<SettingsItem>()
 
-        // 模型设置
+        // 模型设置分组
         newItems.add(SettingsItem.Header(Section.MODEL))
         if (expandedSections.contains(Section.MODEL)) {
             for (model in models) {
@@ -301,7 +382,7 @@ class SettingsAdapter(
             newItems.add(SettingsItem.AddModel())
         }
 
-        // 界面设置
+        // 界面设置分组
         newItems.add(SettingsItem.Header(Section.UI))
         if (expandedSections.contains(Section.UI)) {
             newItems.add(SettingsItem.UiSwitch(UiSetting.THEME))
@@ -312,7 +393,7 @@ class SettingsAdapter(
             newItems.add(SettingsItem.UiSwitch(UiSetting.TIMESTAMP))
         }
 
-        // 能力设置
+        // 能力设置分组
         newItems.add(SettingsItem.Header(Section.CAPABILITY))
         if (expandedSections.contains(Section.CAPABILITY)) {
             newItems.add(SettingsItem.CapabilitySwitch(CapabilitySetting.WEB_SEARCH))
@@ -322,6 +403,10 @@ class SettingsAdapter(
         submitList(newItems)
     }
 
+    /**
+     * 切换分组的展开/收起状态
+     * 切换后自动重建列表
+     */
     private fun toggleSection(section: Section) {
         if (expandedSections.contains(section)) {
             expandedSections.remove(section)
