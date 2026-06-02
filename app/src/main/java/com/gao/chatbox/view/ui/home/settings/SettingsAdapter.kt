@@ -15,7 +15,8 @@ class SettingsAdapter(
     private val onAddModelClick: () -> Unit,
     private val onUiSwitchChanged: (UiSetting, Boolean) -> Unit,
     private val onCapabilitySwitchChanged: (CapabilitySetting, Boolean) -> Unit,
-    private val onLanguageClick: () -> Unit
+    private val onLanguageClick: () -> Unit,
+    private val onThemeClick: () -> Unit
 ) : BaseMultiItemAdapter<SettingsAdapter.SettingsItem>() {
 
     companion object {
@@ -25,7 +26,7 @@ class SettingsAdapter(
     }
 
     enum class Section { MODEL, UI, CAPABILITY }
-    enum class UiSetting { CHAR_COUNT, TOKEN_COUNT, MODEL_NAME, TIMESTAMP, LANGUAGE }
+    enum class UiSetting { CHAR_COUNT, TOKEN_COUNT, MODEL_NAME, TIMESTAMP, LANGUAGE, THEME }
     enum class CapabilitySetting { WEB_SEARCH }
 
     sealed class SettingsItem {
@@ -45,6 +46,7 @@ class SettingsAdapter(
     var showTimestamp = false
     var webSearchEnabled = false
     var currentLanguage = "system"
+    var currentTheme = "system"
 
     init {
         onItemViewType { position, list ->
@@ -174,9 +176,21 @@ class SettingsAdapter(
                 holder.setGone(R.id.switch_section, true)
                 holder.itemView.setOnClickListener { onLanguageClick() }
             }
+            UiSetting.THEME -> {
+                val context = holder.itemView.context
+                val themeName = when (currentTheme) {
+                    "light" -> context.getString(R.string.theme_light)
+                    "dark" -> context.getString(R.string.theme_dark)
+                    else -> context.getString(R.string.theme_system)
+                }
+                holder.setText(R.id.tv_section_title, "${context.getString(R.string.ui_theme)}: $themeName")
+                holder.setGone(R.id.iv_expand, true)
+                holder.setGone(R.id.switch_section, true)
+                holder.itemView.setOnClickListener { onThemeClick() }
+            }
         }
 
-        if (item.setting != UiSetting.LANGUAGE) {
+        if (item.setting != UiSetting.LANGUAGE && item.setting != UiSetting.THEME) {
             holder.itemView.setOnClickListener(null)
         }
     }
@@ -222,6 +236,7 @@ class SettingsAdapter(
         // 界面设置
         newItems.add(SettingsItem.Header(Section.UI))
         if (expandedSections.contains(Section.UI)) {
+            newItems.add(SettingsItem.UiSwitch(UiSetting.THEME))
             newItems.add(SettingsItem.UiSwitch(UiSetting.LANGUAGE))
             newItems.add(SettingsItem.UiSwitch(UiSetting.CHAR_COUNT))
             newItems.add(SettingsItem.UiSwitch(UiSetting.TOKEN_COUNT))

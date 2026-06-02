@@ -65,7 +65,8 @@ class SettingsFragment : Fragment() {
             onCapabilitySwitchChanged = { setting, checked ->
                 viewModel.updateCapabilitySetting(setting, checked)
             },
-            onLanguageClick = { showLanguageDialog() }
+            onLanguageClick = { showLanguageDialog() },
+            onThemeClick = { showThemeDialog() }
         )
         binding.rvSettings.adapter = adapter
     }
@@ -98,6 +99,11 @@ class SettingsFragment : Fragment() {
                         adapter?.currentLanguage = language
                     }
                 }
+                launch {
+                    viewModel.currentTheme.collect { theme ->
+                        adapter?.currentTheme = theme
+                    }
+                }
             }
         }
     }
@@ -127,6 +133,30 @@ class SettingsFragment : Fragment() {
             .setMessage(R.string.delete_model_confirm_message)
             .setPositiveButton(R.string.dialog_confirm) { _, _ ->
                 viewModel.deleteModel(config.id)
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
+
+    private fun showThemeDialog() {
+        val themes = arrayOf(
+            getString(R.string.theme_system),
+            getString(R.string.theme_light),
+            getString(R.string.theme_dark)
+        )
+        val themeValues = arrayOf("system", "light", "dark")
+
+        val currentTheme = viewModel.currentTheme.value
+        val currentIndex = themeValues.indexOf(currentTheme).coerceAtLeast(0)
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.ui_theme)
+            .setSingleChoiceItems(themes, currentIndex) { dialog, which ->
+                val selectedTheme = themeValues[which]
+                if (selectedTheme != currentTheme) {
+                    viewModel.setTheme(selectedTheme)
+                }
+                dialog.dismiss()
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()

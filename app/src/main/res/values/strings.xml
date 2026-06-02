@@ -63,6 +63,12 @@
     <string name="language_chinese">中文</string>
     <string name="language_english">英文</string>
 
+    <!-- Theme settings -->
+    <string name="ui_theme">主题</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">白天</string>
+    <string name="theme_dark">黑夜</string>
+
     <!-- Default system prompt -->
     <string name="default_system_prompt_content">你是一个智能助手</string>
     <string name="default_system_prompt_tag">默认</string>

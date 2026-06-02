@@ -12,5 +12,6 @@ class ChatBoxApp : Application() {
     override fun onCreate() {
         super.onCreate()
         appComponent = DaggerAppComponent.factory().create(this)
+        appComponent.provideThemeManager()
     }
 }

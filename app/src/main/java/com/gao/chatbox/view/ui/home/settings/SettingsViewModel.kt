@@ -11,6 +11,7 @@ import com.gao.chatbox.view.data.model.ModelConfig
 import com.gao.chatbox.view.util.ApiClient
 import com.gao.chatbox.view.util.LanguageManager
 import com.gao.chatbox.view.util.ModelConfigManager
+import com.gao.chatbox.view.util.ThemeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,7 +22,8 @@ import javax.inject.Inject
 class SettingsViewModel(
     private val modelConfigManager: ModelConfigManager,
     private val dataStore: DataStore<Preferences>,
-    private val languageManager: LanguageManager
+    private val languageManager: LanguageManager,
+    private val themeManager: ThemeManager
 ) : ViewModel() {
 
     companion object {
@@ -53,6 +55,9 @@ class SettingsViewModel(
     // Directly expose languageManager's StateFlow
     val currentLanguage: StateFlow<String> = languageManager.currentLanguage
 
+    // Directly expose themeManager's StateFlow
+    val currentTheme: StateFlow<String> = themeManager.currentTheme
+
     init {
         viewModelScope.launch {
             modelConfigManager.init()
@@ -80,6 +85,12 @@ class SettingsViewModel(
     fun setLanguage(language: String) {
         viewModelScope.launch {
             languageManager.setLanguage(language)
+        }
+    }
+
+    fun setTheme(theme: String) {
+        viewModelScope.launch {
+            themeManager.setTheme(theme)
         }
     }
 
@@ -111,6 +122,7 @@ class SettingsViewModel(
             SettingsAdapter.UiSetting.MODEL_NAME -> KEY_SHOW_MODEL_NAME
             SettingsAdapter.UiSetting.TIMESTAMP -> KEY_SHOW_TIMESTAMP
             SettingsAdapter.UiSetting.LANGUAGE -> return // Language is handled separately
+            SettingsAdapter.UiSetting.THEME -> return // Theme is handled separately
         }
         viewModelScope.launch {
             dataStore.edit { prefs ->
@@ -141,11 +153,12 @@ class SettingsViewModel(
     class Factory @Inject constructor(
         private val modelConfigManager: ModelConfigManager,
         private val dataStore: DataStore<Preferences>,
-        private val languageManager: LanguageManager
+        private val languageManager: LanguageManager,
+        private val themeManager: ThemeManager
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return SettingsViewModel(modelConfigManager, dataStore, languageManager) as T
+            return SettingsViewModel(modelConfigManager, dataStore, languageManager, themeManager) as T
         }
     }
 }

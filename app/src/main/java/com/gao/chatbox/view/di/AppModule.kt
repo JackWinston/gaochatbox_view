@@ -9,6 +9,7 @@ import com.gao.chatbox.view.data.local.db.AppDatabase
 import com.gao.chatbox.view.data.local.db.dao.ConversationDao
 import com.gao.chatbox.view.data.local.db.dao.MessageDao
 import com.gao.chatbox.view.util.LanguageManager
+import com.gao.chatbox.view.util.ThemeManager
 import dagger.Module
 import dagger.Provides
 import javax.inject.Singleton
@@ -42,5 +43,11 @@ object AppModule {
     @Singleton
     fun provideLanguageManager(dataStore: DataStore<Preferences>): LanguageManager {
         return LanguageManager(dataStore)
+    }
+
+    @Provides
+    @Singleton
+    fun provideThemeManager(dataStore: DataStore<Preferences>): ThemeManager {
+        return ThemeManager(dataStore)
     }
 }
