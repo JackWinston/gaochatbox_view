@@ -188,7 +188,8 @@ class ChatRepository @Inject constructor(
         toolResults: Map<String, String>,
         config: ModelConfig,
         enableWebSearch: Boolean,
-        assistantMessageId: Long
+        assistantMessageId: Long,
+        directAnswerInstruction: String? = null
     ): StreamResult {
         val model = config.defaultModel.ifEmpty { config.models.firstOrNull() ?: "" }
         val api = ApiClient.buildOpenAiApiStreaming(config.apiUrl)
@@ -212,6 +213,14 @@ class ChatRepository @Inject constructor(
                 )
             )
         }
+        if (!directAnswerInstruction.isNullOrBlank()) {
+            messages.add(
+                OpenAiChatMessage(
+                    role = "system",
+                    content = directAnswerInstruction
+                )
+            )
+        }
 
         val request = OpenAiChatRequest(
             model = model,
@@ -220,7 +229,7 @@ class ChatRepository @Inject constructor(
             stream = true,
             streamOptions = mapOf("include_usage" to true),
             tools = tools,
-            toolChoice = null
+            toolChoice = if (enableWebSearch) null else "none"
         )
 
         val requestJson = gson.toJson(request)

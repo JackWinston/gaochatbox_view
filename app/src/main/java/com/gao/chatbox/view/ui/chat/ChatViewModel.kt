@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
 import com.gao.chatbox.view.data.model.ModelConfig
+import com.gao.chatbox.view.data.remote.OpenAiChatMessage
 import com.gao.chatbox.view.data.remote.StreamEvent
 import com.gao.chatbox.view.data.remote.ToolCall
 import com.gao.chatbox.view.data.remote.ToolCallFunction
@@ -168,7 +169,8 @@ class ChatViewModel(
     enum class PendingResponsePhase {
         IDLE,              // 空闲
         THINKING,          // 等待模型响应（思考中）
-        EXECUTING_TOOLS    // 正在执行工具调用
+        EXECUTING_TOOLS,   // 正在执行工具调用
+        DIRECT_ANSWER_FALLBACK // 达到工具轮次上限后，基于现有结果直接回答
     }
 
     /** 工具调用构建器（流式接收参数时使用） */
@@ -183,6 +185,14 @@ class ChatViewModel(
         val toolCall: ToolCall,
         val result: String,
         val isError: Boolean
+    )
+
+    /** 工具续轮上下文，用于超轮次时降级为直接回答 */
+    private data class ToolFollowUpContext(
+        val history: List<OpenAiChatMessage>,
+        val assistantContent: String?,
+        val toolCalls: List<ToolCall>,
+        val toolResults: Map<String, String>
     )
 
     /** 待发送附件数据 */
@@ -498,7 +508,9 @@ class ChatViewModel(
         result: StreamResult,
         config: ModelConfig,
         systemPrompt: String,
-        allowToolCalls: Boolean
+        allowToolCalls: Boolean,
+        toolFollowUpContext: ToolFollowUpContext? = null,
+        ignoreDisallowedToolCalls: Boolean = false
     ) {
         result.stream.collect { event ->
             when (event) {
@@ -514,8 +526,10 @@ class ChatViewModel(
                 }
                 is StreamEvent.ToolCallDelta -> {
                     if (!allowToolCalls) {
-                        showErrorMessage("当前模型响应返回了未启用的工具调用。")
-                        finishStreaming()
+                        if (!ignoreDisallowedToolCalls) {
+                            showErrorMessage("当前模型响应返回了未启用的工具调用。")
+                            finishStreaming()
+                        }
                         return@collect
                     }
                     // 按 index 累积工具调用参数（流式传输中参数分片到达）
@@ -529,8 +543,12 @@ class ChatViewModel(
                         // 检查工具调用轮次限制
                         if (currentToolCallRoundCount >= _maxToolCallRounds.value) {
                             pendingToolCalls.clear()
-                            showErrorMessage("已达到连续工具调用最大轮次（${_maxToolCallRounds.value}次），已停止继续调用工具。")
-                            finishStreaming()
+                            if (toolFollowUpContext != null) {
+                                requestDirectAnswerAfterToolLimit(config, systemPrompt, toolFollowUpContext)
+                            } else {
+                                showErrorMessage("已达到连续工具调用最大轮次（${_maxToolCallRounds.value}次），已停止继续调用工具。")
+                                finishStreaming()
+                            }
                             return@collect
                         }
                         currentToolCallRoundCount++
@@ -711,6 +729,12 @@ class ChatViewModel(
                 type = "Context Compression (Tool Follow-up)",
                 report = plannedToolRequest.report
             )
+            val toolFollowUpContext = ToolFollowUpContext(
+                history = plannedToolRequest.history,
+                assistantContent = assistantToolCallContent,
+                toolCalls = toolCalls,
+                toolResults = toolResults
+            )
             val secondResult = chatRepository.sendToolResult(
                 conversationId = conversationId,
                 history = plannedToolRequest.history,
@@ -726,12 +750,52 @@ class ChatViewModel(
                 result = secondResult,
                 config = config,
                 systemPrompt = systemPrompt,
-                allowToolCalls = _webSearchEnabled.value
+                allowToolCalls = _webSearchEnabled.value,
+                toolFollowUpContext = toolFollowUpContext
             )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             showErrorMessage("工具结果请求失败: ${e.message}")
+            finishStreaming()
+        }
+    }
+
+    private suspend fun requestDirectAnswerAfterToolLimit(
+        config: ModelConfig,
+        systemPrompt: String,
+        toolFollowUpContext: ToolFollowUpContext
+    ) {
+        discardStreamingMessage()
+        accumulatedContent = ""
+        lastUIUpdateTime = 0L
+        pendingToolCalls.clear()
+        activeStreamingItemId = null
+        _pendingResponsePhase.value = PendingResponsePhase.DIRECT_ANSWER_FALLBACK
+
+        try {
+            val degradedResult = chatRepository.sendToolResult(
+                conversationId = conversationId,
+                history = toolFollowUpContext.history,
+                assistantContent = toolFollowUpContext.assistantContent,
+                toolCalls = toolFollowUpContext.toolCalls,
+                toolResults = toolFollowUpContext.toolResults,
+                config = config,
+                enableWebSearch = false,
+                assistantMessageId = currentAssistantMessageId,
+                directAnswerInstruction = context.getString(R.string.tool_limit_direct_answer_prompt)
+            )
+            collectStream(
+                result = degradedResult,
+                config = config,
+                systemPrompt = systemPrompt,
+                allowToolCalls = false,
+                ignoreDisallowedToolCalls = true
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            showErrorMessage("达到工具轮次上限后，直接回答请求失败: ${e.message}")
             finishStreaming()
         }
     }
@@ -916,6 +980,15 @@ class ChatViewModel(
                 appendLine("${index + 1}. $summary")
             }
         }.trim()
+    }
+
+    private fun discardStreamingMessage() {
+        val items = _chatItems.value.toMutableList()
+        val idx = items.indexOfFirst { it is ChatItem.StreamingMessage }
+        if (idx >= 0) {
+            items.removeAt(idx)
+            _chatItems.value = items
+        }
     }
 
     private fun generateTitle(items: List<ChatItem>) {

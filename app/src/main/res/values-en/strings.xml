@@ -118,6 +118,9 @@
     <!-- Chat items -->
     <string name="chat_system_prompt_label">System Prompt</string>
     <string name="chat_thinking">Thinking…</string>
+    <string name="chat_executing_tools">Calling tools…</string>
+    <string name="chat_tool_limit_direct_answer">Tool call limit reached. Answering directly based on the available results…</string>
+    <string name="tool_limit_direct_answer_prompt">You have reached the maximum number of tool-call rounds allowed for this conversation. Do not call any more tools. Based on the current context and the tool results already returned, provide the final answer directly. If the information is still insufficient, clearly state the uncertainty.</string>
     <string name="chat_context_compression_history_only">Context compressed for this turn. Kept %1$d recent messages and summarized %2$d messages</string>
     <string name="chat_context_compression_with_attachment">Context compressed for this turn. Kept %1$d recent messages and summarized %2$d messages. Attachment trimmed</string>
     <string name="chat_context_compression_attachment_only">Context compressed for this turn. Attachment trimmed to fit the budget</string>

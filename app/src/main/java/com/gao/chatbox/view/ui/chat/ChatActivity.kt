@@ -316,6 +316,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                 ChatViewModel.PendingResponsePhase.IDLE -> null
                 ChatViewModel.PendingResponsePhase.THINKING -> R.string.chat_thinking
                 ChatViewModel.PendingResponsePhase.EXECUTING_TOOLS -> R.string.chat_executing_tools
+                ChatViewModel.PendingResponsePhase.DIRECT_ANSWER_FALLBACK -> R.string.chat_tool_limit_direct_answer
             }
 
             if (textRes == null) {

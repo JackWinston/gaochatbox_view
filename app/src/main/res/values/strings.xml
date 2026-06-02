@@ -128,6 +128,8 @@
     <string name="chat_system_prompt_label">系统提示词</string>
     <string name="chat_thinking">正在思考中…</string>
     <string name="chat_executing_tools">正在调用工具…</string>
+    <string name="chat_tool_limit_direct_answer">已达到工具轮次上限，正在基于现有结果直接回答…</string>
+    <string name="tool_limit_direct_answer_prompt">你已经达到本次对话允许的最大工具调用轮次。不要再调用任何工具。请基于现有上下文和已返回的工具结果，直接给出最终答案；如果信息仍然不足，请明确说明不确定性。</string>
     <string name="chat_context_compression_history_only">本轮已压缩上下文，保留最近 %1$d 条消息，摘要 %2$d 条消息</string>
     <string name="chat_context_compression_with_attachment">本轮已压缩上下文，保留最近 %1$d 条消息，摘要 %2$d 条消息，附件已裁剪</string>
     <string name="chat_context_compression_attachment_only">本轮已压缩上下文，附件已按预算裁剪</string>
