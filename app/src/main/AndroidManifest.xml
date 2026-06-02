@@ -30,6 +30,10 @@
             android:exported="false"
             android:label="@string/app_name"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.debug.DebugLogActivity"
+            android:exported="false"
+            android:label="@string/debug_log_title" />
     </application>
 
 </manifest>

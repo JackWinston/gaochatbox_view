@@ -1,4 +1,5 @@
 package com.gao.chatbox.view.data.repository
+import android.content.Context
 import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
 import com.gao.chatbox.view.data.model.ModelConfig
 import com.gao.chatbox.view.data.remote.AnthropicMessage
@@ -12,7 +13,12 @@ import com.gao.chatbox.view.data.remote.ToolCallFunction
 import com.gao.chatbox.view.data.remote.ToolDefinition
 import com.gao.chatbox.view.data.remote.ToolFunctionDefinition
 import com.gao.chatbox.view.util.ApiClient
+import com.gao.chatbox.view.util.DebugLogManager
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onStart
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -31,8 +37,10 @@ data class MessageContext(
 
 @Singleton
 class ChatRepository @Inject constructor(
+    private val context: Context,
     private val dbManager: ChatDatabaseManager
 ) {
+    private val gson = Gson()
 
     suspend fun sendMessage(
         conversationId: Long,
@@ -93,11 +101,18 @@ class ChatRepository @Inject constructor(
                     temperature = config.temperature,
                     stream = true
                 )
+                val requestJson = gson.toJson(request)
                 val responseBody = api.createMessageStream(
                     apiKey = config.apiKey,
                     request = request
                 )
-                SseParser.parseAnthropicStream(responseBody)
+                wrapStreamWithLogging(
+                    SseParser.parseAnthropicStream(responseBody),
+                    convId,
+                    "Anthropic Messages",
+                    "${config.apiUrl}/messages",
+                    requestJson
+                )
             }
             else -> {
                 val api = ApiClient.buildOpenAiApiStreaming(config.apiUrl)
@@ -110,11 +125,18 @@ class ChatRepository @Inject constructor(
                     streamOptions = mapOf("include_usage" to true),
                     tools = tools
                 )
+                val requestJson = gson.toJson(request)
                 val responseBody = api.createChatCompletionStream(
                     authorization = "Bearer ${config.apiKey}",
                     request = request
                 )
-                SseParser.parseOpenAiStream(responseBody)
+                wrapStreamWithLogging(
+                    SseParser.parseOpenAiStream(responseBody),
+                    convId,
+                    "OpenAI Chat Completions",
+                    "${config.apiUrl}/chat/completions",
+                    requestJson
+                )
             }
         }
 
@@ -123,6 +145,39 @@ class ChatRepository @Inject constructor(
             assistantMessageId = assistantMsgId,
             stream = stream
         )
+    }
+
+    private fun wrapStreamWithLogging(
+        originalStream: Flow<StreamEvent>,
+        conversationId: Long,
+        type: String,
+        url: String,
+        requestJson: String
+    ): Flow<StreamEvent> {
+        val responseBuilder = StringBuilder()
+        return originalStream
+            .onStart {
+                DebugLogManager.appendLog(context, conversationId, type, url, requestJson, null)
+            }
+            .onEach { event ->
+                when (event) {
+                    is StreamEvent.ContentDelta -> responseBuilder.append(event.text)
+                    is StreamEvent.ToolCallDelta -> {
+                        responseBuilder.append("[tool_call:${event.functionName}]")
+                    }
+                    is StreamEvent.StreamEnd -> {
+                        val responseJson = gson.toJson(mapOf(
+                            "content" to responseBuilder.toString(),
+                            "usage" to event.usage,
+                            "finishReason" to event.finishReason
+                        ))
+                        DebugLogManager.appendLog(context, conversationId, "$type Response", url, null, responseJson)
+                    }
+                    is StreamEvent.Error -> {
+                        DebugLogManager.appendLog(context, conversationId, "$type Error", url, null, event.message, isError = true)
+                    }
+                }
+            }
     }
 
     suspend fun sendToolResult(
@@ -168,6 +223,7 @@ class ChatRepository @Inject constructor(
             toolChoice = null
         )
 
+        val requestJson = gson.toJson(request)
         val responseBody = api.createChatCompletionStream(
             authorization = "Bearer ${config.apiKey}",
             request = request
@@ -176,7 +232,13 @@ class ChatRepository @Inject constructor(
         return StreamResult(
             conversationId = conversationId,
             assistantMessageId = assistantMessageId,
-            stream = SseParser.parseOpenAiStream(responseBody)
+            stream = wrapStreamWithLogging(
+                SseParser.parseOpenAiStream(responseBody),
+                conversationId,
+                "OpenAI Tool Result",
+                "${config.apiUrl}/chat/completions",
+                requestJson
+            )
         )
     }
 
@@ -228,8 +290,11 @@ class ChatRepository @Inject constructor(
                         temperature = 0.7f,
                         stream = false
                     )
+                    val requestJson = gson.toJson(request)
                     val response = api.createMessage(apiKey = config.apiKey, request = request)
-                    response.content?.firstOrNull()?.text?.trim()
+                    val result = response.content?.firstOrNull()?.text?.trim()
+                    DebugLogManager.appendLog(context, 0L, "Generate Title (Anthropic)", "${config.apiUrl}/messages", requestJson, gson.toJson(response))
+                    result
                 }
                 else -> {
                     val api = ApiClient.buildOpenAiApi(config.apiUrl)
@@ -239,14 +304,18 @@ class ChatRepository @Inject constructor(
                         temperature = 0.7f,
                         stream = false
                     )
+                    val requestJson = gson.toJson(request)
                     val response = api.createChatCompletion(
                         authorization = "Bearer ${config.apiKey}",
                         request = request
                     )
-                    response.choices?.firstOrNull()?.message?.content?.toString()?.trim()
+                    val result = response.choices?.firstOrNull()?.message?.content?.toString()?.trim()
+                    DebugLogManager.appendLog(context, 0L, "Generate Title (OpenAI)", "${config.apiUrl}/chat/completions", requestJson, gson.toJson(response))
+                    result
                 }
             }
         } catch (e: Exception) {
+            DebugLogManager.appendLog(context, 0L, "Generate Title Error", config.apiUrl, null, e.message, isError = true)
             null
         }
     }

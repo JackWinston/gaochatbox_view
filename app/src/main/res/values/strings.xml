@@ -120,4 +120,13 @@
     <string name="delete_conversation_message">确定要删除这条会话记录吗？删除后将无法恢复。</string>
     <string name="empty_history">暂无历史记录</string>
     <string name="msg_conversation_deleted">会话已删除</string>
+
+    <!-- Debug -->
+    <string name="menu_debug">调试</string>
+    <string name="debug_log_title">调试日志</string>
+    <string name="debug_log_empty">暂无网络请求记录</string>
+    <string name="debug_log_copy">复制日志</string>
+    <string name="debug_log_delete">删除日志</string>
+    <string name="debug_log_copied">日志已复制到剪贴板</string>
+    <string name="debug_log_deleted">日志已删除</string>
 </resources>

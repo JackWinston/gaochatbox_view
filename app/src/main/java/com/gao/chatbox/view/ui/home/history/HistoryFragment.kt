@@ -21,6 +21,7 @@ import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.local.db.entity.ConversationWithLastMessage
 import com.gao.chatbox.view.databinding.FragmentHistoryBinding
 import com.gao.chatbox.view.ui.chat.ChatActivity
+import com.gao.chatbox.view.ui.debug.DebugLogActivity
 import kotlinx.coroutines.launch
 
 class HistoryFragment : Fragment() {
@@ -89,7 +90,7 @@ class HistoryFragment : Fragment() {
     private fun setupRecyclerView() {
         adapter = ConversationAdapter(
             onItemClick = { item -> openConversation(item) },
-            onItemLongClick = { item -> showDeleteConfirm(item) }
+            onItemLongClick = { item -> showLongPressMenu(item) }
         )
         binding.rvConversations.apply {
             layoutManager = LinearLayoutManager(requireContext())
@@ -169,6 +170,26 @@ class HistoryFragment : Fragment() {
             systemPromptTag = conv.systemPromptTag ?: "",
             displayTag = conv.displayTag ?: conv.title
         )
+    }
+
+    private fun showLongPressMenu(item: ConversationWithLastMessage) {
+        val items = arrayOf(
+            getString(R.string.menu_debug),
+            getString(R.string.delete_conversation_title)
+        )
+        AlertDialog.Builder(requireContext())
+            .setTitle(item.conversation.displayTag ?: item.conversation.title)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> openDebugLog(item)
+                    1 -> showDeleteConfirm(item)
+                }
+            }
+            .show()
+    }
+
+    private fun openDebugLog(item: ConversationWithLastMessage) {
+        DebugLogActivity.start(requireContext(), item.conversation.id)
     }
 
     private fun showDeleteConfirm(item: ConversationWithLastMessage) {

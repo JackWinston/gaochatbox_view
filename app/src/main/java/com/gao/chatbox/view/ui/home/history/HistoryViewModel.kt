@@ -1,10 +1,12 @@
 package com.gao.chatbox.view.ui.home.history
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
 import com.gao.chatbox.view.data.local.db.entity.ConversationWithLastMessage
+import com.gao.chatbox.view.util.DebugLogManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -15,6 +17,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 class HistoryViewModel(
+    private val context: Context,
     private val dbManager: ChatDatabaseManager
 ) : ViewModel() {
 
@@ -59,15 +62,17 @@ class HistoryViewModel(
     fun deleteConversation(id: Long) {
         viewModelScope.launch {
             dbManager.deleteConversation(id)
+            DebugLogManager.deleteLogFile(context, id)
         }
     }
 
     class Factory @Inject constructor(
+        private val context: Context,
         private val dbManager: ChatDatabaseManager
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return HistoryViewModel(dbManager) as T
+            return HistoryViewModel(context, dbManager) as T
         }
     }
 }

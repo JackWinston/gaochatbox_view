@@ -1,4 +1,5 @@
 package com.gao.chatbox.view.ui.chat
+import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -16,6 +17,7 @@ import com.gao.chatbox.view.data.remote.ToolCallFunction
 import com.gao.chatbox.view.data.repository.ChatRepository
 import com.gao.chatbox.view.data.repository.MessageContext
 import com.gao.chatbox.view.data.repository.StreamResult
+import com.gao.chatbox.view.util.DebugLogManager
 import com.gao.chatbox.view.util.ModelConfigManager
 import com.gao.chatbox.view.util.WebSearchTool
 import com.google.gson.Gson
@@ -33,6 +35,7 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 class ChatViewModel(
+    private val context: Context,
     private val chatRepository: ChatRepository,
     private val dbManager: ChatDatabaseManager,
     private val modelConfigManager: ModelConfigManager,
@@ -791,6 +794,7 @@ class ChatViewModel(
         if (conversationId <= 0L) return
         viewModelScope.launch {
             dbManager.deleteConversation(conversationId)
+            DebugLogManager.deleteLogFile(context, conversationId)
         }
     }
 
@@ -855,6 +859,7 @@ class ChatViewModel(
     }
 
     class Factory @Inject constructor(
+        private val context: Context,
         private val chatRepository: ChatRepository,
         private val dbManager: ChatDatabaseManager,
         private val modelConfigManager: ModelConfigManager,
@@ -862,7 +867,7 @@ class ChatViewModel(
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return ChatViewModel(chatRepository, dbManager, modelConfigManager, dataStore) as T
+            return ChatViewModel(context, chatRepository, dbManager, modelConfigManager, dataStore) as T
         }
     }
 }
