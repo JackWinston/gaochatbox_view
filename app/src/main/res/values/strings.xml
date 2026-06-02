@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">ChatBox</string>
+    <string name="app_name">GaoChatbox</string>
     <string name="tab_quick_start">快速开始</string>
     <string name="tab_history">历史</string>
     <string name="tab_settings">设置</string>
