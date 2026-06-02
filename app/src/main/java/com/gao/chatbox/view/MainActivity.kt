@@ -10,6 +10,10 @@ import com.gao.chatbox.view.ui.home.settings.SettingsFragment
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val KEY_SELECTED_TAB = "selected_tab"
+    }
+
     private lateinit var binding: ActivityMainBinding
 
     private val quickStartFragment by lazy { QuickStartFragment() }
@@ -19,12 +23,22 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        if (savedInstanceState == null) {
-            switchFragment(quickStartFragment)
+        // Always start with clean fragment state to avoid duplicates after language change
+        clearAllFragments()
+
+        // Restore selected tab after configuration change
+        val selectedTabId = savedInstanceState?.getInt(KEY_SELECTED_TAB, R.id.nav_quick_start) ?: R.id.nav_quick_start
+        val targetFragment = when (selectedTabId) {
+            R.id.nav_history -> historyFragment
+            R.id.nav_settings -> settingsFragment
+            else -> quickStartFragment
         }
+        binding.bottomNavigation.selectedItemId = selectedTabId
+        switchFragment(targetFragment)
 
         binding.bottomNavigation.setOnItemSelectedListener { item ->
             when (item.itemId) {
@@ -43,6 +57,20 @@ class MainActivity : AppCompatActivity() {
                 else -> false
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(KEY_SELECTED_TAB, binding.bottomNavigation.selectedItemId)
+    }
+
+    private fun clearAllFragments() {
+        val transaction = supportFragmentManager.beginTransaction()
+        supportFragmentManager.fragments.forEach { fragment ->
+            transaction.remove(fragment)
+        }
+        transaction.commitNow()
+        activeFragment = null
     }
 
     private fun switchFragment(target: Fragment) {

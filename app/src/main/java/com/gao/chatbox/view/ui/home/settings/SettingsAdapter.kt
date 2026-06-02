@@ -14,7 +14,8 @@ class SettingsAdapter(
     private val onModelLongClick: (View, ModelConfig) -> Unit,
     private val onAddModelClick: () -> Unit,
     private val onUiSwitchChanged: (UiSetting, Boolean) -> Unit,
-    private val onCapabilitySwitchChanged: (CapabilitySetting, Boolean) -> Unit
+    private val onCapabilitySwitchChanged: (CapabilitySetting, Boolean) -> Unit,
+    private val onLanguageClick: () -> Unit
 ) : BaseMultiItemAdapter<SettingsAdapter.SettingsItem>() {
 
     companion object {
@@ -24,7 +25,7 @@ class SettingsAdapter(
     }
 
     enum class Section { MODEL, UI, CAPABILITY }
-    enum class UiSetting { CHAR_COUNT, TOKEN_COUNT, MODEL_NAME, TIMESTAMP }
+    enum class UiSetting { CHAR_COUNT, TOKEN_COUNT, MODEL_NAME, TIMESTAMP, LANGUAGE }
     enum class CapabilitySetting { WEB_SEARCH }
 
     sealed class SettingsItem {
@@ -43,6 +44,7 @@ class SettingsAdapter(
     var showModelName = false
     var showTimestamp = false
     var webSearchEnabled = false
+    var currentLanguage = "system"
 
     init {
         onItemViewType { position, list ->
@@ -160,9 +162,23 @@ class SettingsAdapter(
                     onUiSwitchChanged(UiSetting.TIMESTAMP, isChecked)
                 }
             }
+            UiSetting.LANGUAGE -> {
+                val context = holder.itemView.context
+                val languageName = when (currentLanguage) {
+                    "zh" -> context.getString(R.string.language_chinese)
+                    "en" -> context.getString(R.string.language_english)
+                    else -> context.getString(R.string.language_system)
+                }
+                holder.setText(R.id.tv_section_title, "${context.getString(R.string.ui_language)}: $languageName")
+                holder.setGone(R.id.iv_expand, true)
+                holder.setGone(R.id.switch_section, true)
+                holder.itemView.setOnClickListener { onLanguageClick() }
+            }
         }
 
-        holder.itemView.setOnClickListener(null)
+        if (item.setting != UiSetting.LANGUAGE) {
+            holder.itemView.setOnClickListener(null)
+        }
     }
 
     private fun bindCapabilitySwitch(holder: QuickViewHolder, item: SettingsItem.CapabilitySwitch) {
@@ -206,6 +222,7 @@ class SettingsAdapter(
         // 界面设置
         newItems.add(SettingsItem.Header(Section.UI))
         if (expandedSections.contains(Section.UI)) {
+            newItems.add(SettingsItem.UiSwitch(UiSetting.LANGUAGE))
             newItems.add(SettingsItem.UiSwitch(UiSetting.CHAR_COUNT))
             newItems.add(SettingsItem.UiSwitch(UiSetting.TOKEN_COUNT))
             newItems.add(SettingsItem.UiSwitch(UiSetting.MODEL_NAME))

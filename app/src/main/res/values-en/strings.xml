@@ -1,0 +1,111 @@
+<resources>
+    <string name="app_name">ChatBox</string>
+    <string name="tab_quick_start">Quick Start</string>
+    <string name="tab_history">History</string>
+    <string name="tab_settings">Settings</string>
+
+    <string name="add_prompt">Add Prompt</string>
+    <string name="edit_prompt">Edit</string>
+    <string name="delete_prompt">Delete</string>
+    <string name="hint_tag">Tag Name</string>
+    <string name="hint_content">System Prompt Content</string>
+    <string name="dialog_title_add">New Prompt</string>
+    <string name="dialog_title_edit">Edit Prompt</string>
+    <string name="dialog_confirm">OK</string>
+    <string name="dialog_cancel">Cancel</string>
+    <string name="delete_confirm_title">Confirm Delete</string>
+    <string name="delete_confirm_message">Are you sure you want to delete this prompt?</string>
+
+    <!-- Settings -->
+    <string name="section_model">Model Settings</string>
+    <string name="section_ui">Interface Settings</string>
+    <string name="section_capability">Capability Settings</string>
+    <string name="add_model">Add Model</string>
+    <string name="model_default_badge">Default</string>
+    <string name="model_count_format">%d models</string>
+
+    <!-- Model dialog -->
+    <string name="dialog_title_add_model">Add Model</string>
+    <string name="dialog_title_edit_model">Edit Model</string>
+    <string name="hint_model_tag">Model Tag</string>
+    <string name="hint_model_name">Model Name</string>
+    <string name="hint_api_url">API URL</string>
+    <string name="hint_api_key">API Key</string>
+    <string name="hint_context_limit">Context Limit</string>
+    <string name="label_temperature">Temperature: %.1f</string>
+    <string name="label_set_default">Set as Default</string>
+    <string name="label_default_model">Default Model</string>
+    <string name="label_api_type">API Type</string>
+    <string name="api_type_openai">OpenAI</string>
+    <string name="api_type_anthropic">Anthropic</string>
+    <string name="btn_fetch_models">Fetch Models</string>
+    <string name="hint_anthropic_model">Model name (e.g. claude-sonnet-4-20250514)</string>
+    <string name="msg_fetching_models">Fetching models…</string>
+    <string name="msg_fetch_success">Successfully fetched %d models</string>
+    <string name="msg_fetch_failed">Fetch failed: %s</string>
+    <string name="msg_enter_url_and_key">Please enter API URL and key first</string>
+    <string name="msg_fetch_first">Please fetch models list first</string>
+    <string name="delete_model_confirm_message">Are you sure you want to delete this model configuration?</string>
+    <string name="msg_name_required">Please enter model name</string>
+
+    <!-- UI settings -->
+    <string name="ui_show_char_count">Show Character Count</string>
+    <string name="ui_show_token_count">Show Token Count</string>
+    <string name="ui_show_model_name">Show Model Name</string>
+    <string name="ui_show_timestamp">Show Timestamp</string>
+
+    <!-- Capability settings -->
+    <string name="capability_web_search">Web Search</string>
+
+    <!-- Language settings -->
+    <string name="ui_language">Language</string>
+    <string name="language_system">Follow System</string>
+    <string name="language_chinese">Chinese</string>
+    <string name="language_english">English</string>
+
+    <!-- Default system prompt -->
+    <string name="default_system_prompt_content">You are a smart assistant</string>
+    <string name="default_system_prompt_tag">Default</string>
+
+    <!-- Chat -->
+    <string name="hint_input_message">Type a message…</string>
+    <string name="btn_new_chat">New Chat</string>
+    <string name="btn_select_image">Select Image</string>
+    <string name="btn_select_file">Select File</string>
+    <string name="btn_select_model">Select Model</string>
+    <string name="btn_send">Send</string>
+    <string name="delete_conversation_confirm_title">Confirm Delete</string>
+    <string name="delete_conversation_confirm_message">Are you sure you want to delete this conversation?</string>
+    <string name="chat_role_user">User</string>
+    <string name="chat_role_assistant">Assistant</string>
+    <string name="btn_web_search">Web Search</string>
+    <string name="new_chat_confirm_title">New Chat</string>
+    <string name="new_chat_confirm_message">Current conversation will be lost. Are you sure you want to start a new chat?</string>
+    <string name="select_model_title">Select Model</string>
+    <string name="no_model_available">No models available. Please add one in settings first.</string>
+
+    <!-- Chat items -->
+    <string name="chat_system_prompt_label">System Prompt</string>
+    <string name="chat_thinking">Thinking…</string>
+    <string name="chat_streaming_responding">Responding…</string>
+    <string name="chat_streaming_done">Response complete</string>
+    <string name="chat_expand">Expand</string>
+    <string name="chat_copy">Copy</string>
+    <string name="chat_copy_success">Copied to clipboard</string>
+    <string name="chat_streaming_stats">Thinking %1\$ds · %2\$d chars</string>
+    <string name="stop_streaming_title">Confirm Stop</string>
+    <string name="stop_streaming_message">Are you sure you want to stop the current response? The generated content will be preserved.</string>
+    <string name="edit_title">Edit Title</string>
+    <string name="dialog_title_edit_title">Edit Chat Title</string>
+    <string name="hint_title">Enter title</string>
+
+    <!-- History -->
+    <string name="hint_search_history">Search history</string>
+    <string name="btn_filter">Filter</string>
+    <string name="filter_all">All</string>
+    <string name="filter_by_tag">Filter by tag</string>
+    <string name="delete_conversation_title">Delete Conversation</string>
+    <string name="delete_conversation_message">Are you sure you want to delete this conversation? This cannot be undone.</string>
+    <string name="empty_history">No history yet</string>
+    <string name="msg_conversation_deleted">Conversation deleted</string>
+</resources>

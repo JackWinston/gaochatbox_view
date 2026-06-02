@@ -1,10 +1,12 @@
 package com.gao.chatbox.view.util
 
+import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.model.SystemPrompt
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -15,6 +17,7 @@ import javax.inject.Singleton
 
 @Singleton
 class SystemPromptManager @Inject constructor(
+    private val context: Context,
     private val dataStore: DataStore<Preferences>
 ) {
 
@@ -32,8 +35,8 @@ class SystemPromptManager @Inject constructor(
 
     private suspend fun initDefault() {
         val defaultPrompt = SystemPrompt(
-            content = "你是一个智能助手",
-            tag = "默认",
+            content = context.getString(R.string.default_system_prompt_content),
+            tag = context.getString(R.string.default_system_prompt_tag),
             isDefault = true
         )
         dataStore.edit { prefs ->

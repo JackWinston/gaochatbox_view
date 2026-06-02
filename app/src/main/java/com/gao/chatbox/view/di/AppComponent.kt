@@ -1,6 +1,8 @@
 package com.gao.chatbox.view.di
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import com.gao.chatbox.view.ui.chat.ChatViewModel
 import com.gao.chatbox.view.ui.home.history.HistoryViewModel
 import com.gao.chatbox.view.ui.home.quickstart.QuickStartViewModel
@@ -22,4 +24,6 @@ interface AppComponent {
     fun quickStartViewModelFactory(): QuickStartViewModel.Factory
     fun historyViewModelFactory(): HistoryViewModel.Factory
     fun settingsViewModelFactory(): SettingsViewModel.Factory
+
+    fun provideDataStore(): DataStore<Preferences>
 }

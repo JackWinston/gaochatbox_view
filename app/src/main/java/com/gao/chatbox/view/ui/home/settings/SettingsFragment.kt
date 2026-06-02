@@ -64,7 +64,8 @@ class SettingsFragment : Fragment() {
             },
             onCapabilitySwitchChanged = { setting, checked ->
                 viewModel.updateCapabilitySetting(setting, checked)
-            }
+            },
+            onLanguageClick = { showLanguageDialog() }
         )
         binding.rvSettings.adapter = adapter
     }
@@ -91,6 +92,11 @@ class SettingsFragment : Fragment() {
                 }
                 launch {
                     viewModel.webSearchEnabled.collect { adapter?.webSearchEnabled = it }
+                }
+                launch {
+                    viewModel.currentLanguage.collect { language ->
+                        adapter?.currentLanguage = language
+                    }
                 }
             }
         }
@@ -121,6 +127,30 @@ class SettingsFragment : Fragment() {
             .setMessage(R.string.delete_model_confirm_message)
             .setPositiveButton(R.string.dialog_confirm) { _, _ ->
                 viewModel.deleteModel(config.id)
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
+
+    private fun showLanguageDialog() {
+        val languages = arrayOf(
+            getString(R.string.language_system),
+            getString(R.string.language_chinese),
+            getString(R.string.language_english)
+        )
+        val languageValues = arrayOf("system", "zh", "en")
+
+        val currentLanguage = viewModel.currentLanguage.value
+        val currentIndex = languageValues.indexOf(currentLanguage).coerceAtLeast(0)
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.ui_language)
+            .setSingleChoiceItems(languages, currentIndex) { dialog, which ->
+                val selectedLanguage = languageValues[which]
+                if (selectedLanguage != currentLanguage) {
+                    viewModel.setLanguage(selectedLanguage)
+                }
+                dialog.dismiss()
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()

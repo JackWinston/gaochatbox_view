@@ -57,6 +57,16 @@
     <!-- Capability settings -->
     <string name="capability_web_search">联网搜索</string>
 
+    <!-- Language settings -->
+    <string name="ui_language">语言</string>
+    <string name="language_system">跟随系统</string>
+    <string name="language_chinese">中文</string>
+    <string name="language_english">英文</string>
+
+    <!-- Default system prompt -->
+    <string name="default_system_prompt_content">你是一个智能助手</string>
+    <string name="default_system_prompt_tag">默认</string>
+
     <!-- Chat -->
     <string name="hint_input_message">输入消息…</string>
     <string name="btn_new_chat">新建会话</string>

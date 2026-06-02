@@ -8,6 +8,7 @@ import androidx.room.Room
 import com.gao.chatbox.view.data.local.db.AppDatabase
 import com.gao.chatbox.view.data.local.db.dao.ConversationDao
 import com.gao.chatbox.view.data.local.db.dao.MessageDao
+import com.gao.chatbox.view.util.LanguageManager
 import dagger.Module
 import dagger.Provides
 import javax.inject.Singleton
@@ -36,4 +37,10 @@ object AppModule {
 
     @Provides
     fun provideMessageDao(db: AppDatabase): MessageDao = db.messageDao()
+
+    @Provides
+    @Singleton
+    fun provideLanguageManager(dataStore: DataStore<Preferences>): LanguageManager {
+        return LanguageManager(dataStore)
+    }
 }
