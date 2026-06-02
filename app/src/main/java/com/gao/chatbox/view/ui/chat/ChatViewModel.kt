@@ -11,12 +11,10 @@ import androidx.lifecycle.viewModelScope
 import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
 import com.gao.chatbox.view.data.model.ModelConfig
-import com.gao.chatbox.view.data.remote.OpenAiChatMessage
 import com.gao.chatbox.view.data.remote.StreamEvent
 import com.gao.chatbox.view.data.remote.ToolCall
 import com.gao.chatbox.view.data.remote.ToolCallFunction
 import com.gao.chatbox.view.data.repository.ChatRepository
-import com.gao.chatbox.view.data.repository.MessageContext
 import com.gao.chatbox.view.data.repository.StreamResult
 import com.gao.chatbox.view.util.DebugLogManager
 import com.gao.chatbox.view.util.ModelConfigManager
@@ -25,6 +23,7 @@ import com.gao.chatbox.view.util.WebSearchTool
 import com.google.gson.Gson
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -78,9 +77,6 @@ class ChatViewModel(
     private val _title = MutableStateFlow("")
     val title: StateFlow<String> = _title
 
-    private val _errorMessage = MutableStateFlow<String?>(null)
-    val errorMessage: StateFlow<String?> = _errorMessage
-
     private val _hasPendingAttachment = MutableStateFlow(false)
     val hasPendingAttachment: StateFlow<Boolean> = _hasPendingAttachment
 
@@ -96,18 +92,8 @@ class ChatViewModel(
     private val _contextUsage = MutableStateFlow(ContextUsageInfo())
     val contextUsage: StateFlow<ContextUsageInfo> = _contextUsage
 
-    // UI Settings
-    private val _showCharCount = MutableStateFlow(false)
-    val showCharCount: StateFlow<Boolean> = _showCharCount
-
-    private val _showTokenCount = MutableStateFlow(false)
-    val showTokenCount: StateFlow<Boolean> = _showTokenCount
-
-    private val _showModelName = MutableStateFlow(false)
-    val showModelName: StateFlow<Boolean> = _showModelName
-
-    private val _showTimestamp = MutableStateFlow(false)
-    val showTimestamp: StateFlow<Boolean> = _showTimestamp
+    private val _renderSettings = MutableStateFlow(ChatRenderSettings())
+    val renderSettings: StateFlow<ChatRenderSettings> = _renderSettings
 
     // Internal state
     var conversationId: Long = 0L
@@ -172,10 +158,12 @@ class ChatViewModel(
 
             // Init UI settings
             dataStore.data.collect { prefs ->
-                _showCharCount.value = prefs[KEY_SHOW_CHAR_COUNT] ?: false
-                _showTokenCount.value = prefs[KEY_SHOW_TOKEN_COUNT] ?: false
-                _showModelName.value = prefs[KEY_SHOW_MODEL_NAME] ?: false
-                _showTimestamp.value = prefs[KEY_SHOW_TIMESTAMP] ?: false
+                _renderSettings.value = ChatRenderSettings(
+                    showCharCount = prefs[KEY_SHOW_CHAR_COUNT] ?: false,
+                    showTokenCount = prefs[KEY_SHOW_TOKEN_COUNT] ?: false,
+                    showModelName = prefs[KEY_SHOW_MODEL_NAME] ?: false,
+                    showTimestamp = prefs[KEY_SHOW_TIMESTAMP] ?: false
+                )
                 _maxToolCallRounds.value = (prefs[KEY_MAX_TOOL_CALL_ROUNDS] ?: DEFAULT_MAX_TOOL_CALL_ROUNDS).coerceAtLeast(1)
             }
         }
@@ -311,7 +299,8 @@ class ChatViewModel(
         val attachment = pendingAttachment
         if (text.isBlank() && attachment == null) return
 
-        viewModelScope.launch {
+        streamingJob?.cancel()
+        streamingJob = viewModelScope.launch {
             val config = modelConfigManager.getDefault()
             if (config == null) {
                 showErrorMessage("没有可用的模型配置")
@@ -394,6 +383,8 @@ class ChatViewModel(
                     systemPrompt = systemPromptContent,
                     allowToolCalls = _webSearchEnabled.value
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 showErrorMessage("请求失败: ${e.message}")
                 finishStreaming()
@@ -632,6 +623,8 @@ class ChatViewModel(
                 systemPrompt = systemPrompt,
                 allowToolCalls = _webSearchEnabled.value
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             showErrorMessage("工具结果请求失败: ${e.message}")
             finishStreaming()
@@ -744,25 +737,6 @@ class ChatViewModel(
         }
     }
 
-    private fun buildOpenAiMessageHistory(items: List<ChatItem>): List<OpenAiChatMessage> {
-        val messages = mutableListOf<OpenAiChatMessage>()
-        if (systemPromptContent.isNotBlank()) {
-            messages.add(OpenAiChatMessage(role = "system", content = systemPromptContent))
-        }
-        for (item in items) {
-            when (item) {
-                is ChatItem.UserMessage -> {
-                    messages.add(OpenAiChatMessage(role = "user", content = item.requestContent))
-                }
-                is ChatItem.AssistantMessage -> {
-                    messages.add(OpenAiChatMessage(role = "assistant", content = item.content))
-                }
-                else -> {}
-            }
-        }
-        return messages
-    }
-
     suspend fun finishStreaming(tokenCount: Int? = null) {
         chatRepository.finishMessage(currentAssistantMessageId, accumulatedContent, tokenCount)
 
@@ -811,6 +785,7 @@ class ChatViewModel(
 
         _isStreaming.value = false
         accumulatedContent = ""
+        pendingToolCalls.clear()
         pendingToolFallbackMessage = null
         streamingJob = null
         activeStreamingItemId = null
@@ -977,22 +952,13 @@ class ChatViewModel(
         else text
     }
 
-    private fun buildRequestMessageText(text: String, attachment: PendingAttachment?): String {
-        if (attachment?.fileContent != null) {
-            val prompt = text.ifBlank { "请结合附件文件内容进行处理。" }
-            return buildString {
-                append(prompt)
-                append("\n\n[附件文件: ")
-                append(attachment.displayName)
-                append("]\n")
-                append(attachment.fileContent)
-            }
-        }
-        return if (!text.isBlank()) text else "请查看附件内容。"
-    }
-
     private fun pendingConversationTitle(): String? {
         return if (conversationId == 0L && hasCustomTitle) _title.value.takeIf { it.isNotBlank() } else null
+    }
+
+    override fun onCleared() {
+        streamingJob?.cancel()
+        super.onCleared()
     }
 
     private fun pendingDisplayTag(): String? {

@@ -32,10 +32,7 @@ class ChatAdapter(
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     private val streamingRenderStates = mutableMapOf<String, StreamingRenderState>()
 
-    private var showCharCount = false
-    private var showTokenCount = false
-    private var showModelName = false
-    private var showTimestamp = false
+    private var renderSettings = ChatRenderSettings()
 
     private data class StreamingRenderState(
         val content: String,
@@ -45,16 +42,12 @@ class ChatAdapter(
         val isExpanded: Boolean = false
     )
 
-    fun updateSettings(
-        showCharCount: Boolean,
-        showTokenCount: Boolean,
-        showModelName: Boolean,
-        showTimestamp: Boolean
-    ) {
-        this.showCharCount = showCharCount
-        this.showTokenCount = showTokenCount
-        this.showModelName = showModelName
-        this.showTimestamp = showTimestamp
+    fun updateSettings(settings: ChatRenderSettings): Boolean {
+        if (renderSettings == settings) {
+            return false
+        }
+        renderSettings = settings
+        return true
     }
 
     interface ChatAdapterListener {
@@ -193,16 +186,16 @@ class ChatAdapter(
 
                 // 构建提示信息
                 val metaParts = mutableListOf<String>()
-                if (showCharCount) {
+                if (renderSettings.showCharCount) {
                     metaParts.add("${msg.content.length}字")
                 }
-                if (showTokenCount && msg.tokenCount > 0) {
+                if (renderSettings.showTokenCount && msg.tokenCount > 0) {
                     metaParts.add("${msg.tokenCount}tok")
                 }
-                if (showModelName && !msg.modelName.isNullOrEmpty()) {
+                if (renderSettings.showModelName && !msg.modelName.isNullOrEmpty()) {
                     metaParts.add(msg.modelName!!)
                 }
-                if (showTimestamp && msg.createdAt > 0) {
+                if (renderSettings.showTimestamp && msg.createdAt > 0) {
                     metaParts.add(timeFormat.format(Date(msg.createdAt)))
                 }
 

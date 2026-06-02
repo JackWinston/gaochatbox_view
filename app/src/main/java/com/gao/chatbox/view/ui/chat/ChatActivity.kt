@@ -40,10 +40,19 @@ import kotlinx.coroutines.withContext
 
 class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
-    private enum class PendingScrollTarget {
+    private enum class ScrollTarget {
         NONE,
         KEEP_BOTTOM,
         TOP_OF_LAST_ITEM
+    }
+
+    private data class ScrollRequest(
+        val target: ScrollTarget = ScrollTarget.NONE,
+        val expiresAtMs: Long = 0L,
+        val attempts: Int = 0,
+        val applyScheduled: Boolean = false
+    ) {
+        fun isActive(nowMs: Long): Boolean = target != ScrollTarget.NONE && nowMs <= expiresAtMs
     }
 
     companion object {
@@ -84,10 +93,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         (application as ChatBoxApp).appComponent.chatViewModelFactory()
     }
 
-    private var pendingScrollTarget: PendingScrollTarget = PendingScrollTarget.NONE
-    private var pendingScrollTargetUntilMs: Long = 0L
-    private var pendingScrollAttempts: Int = 0
-    private var pendingScrollApplyScheduled = false
+    private var scrollRequest = ScrollRequest()
     private var dialog: AlertDialog? = null
 
     private val imagePickerLauncher =
@@ -143,7 +149,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             itemAnimator = null
         }
         binding.rvMessages.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            maybeApplyPendingScrollTarget()
+            applyScrollRequestIfNeeded()
         }
 
         // Bottom toolbar actions
@@ -170,21 +176,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     viewModel.chatItems.collect { items ->
-                        val keepBottom = shouldMaintainBottomPosition()
-                        val streamedItem = items.lastOrNull() as? ChatItem.StreamingMessage
-                        val incrementalStreamingUpdate = isStreamingContentOnlyUpdate(lastRenderedItems, items)
-                        val scrollTarget = resolveScrollTarget(keepBottom, lastRenderedItems, items)
-
-                        if (incrementalStreamingUpdate && streamedItem != null) {
-                            chatAdapter.updateStreamingMessage(binding.rvMessages, streamedItem)
-                        } else {
-                            setPendingScrollTarget(scrollTarget)
-                            chatAdapter.syncStreamingRenderStates(items)
-                            chatAdapter.submitList(items) {
-                                applyPendingScrollTargetAfterLayout()
-                            }
-                        }
-                        lastRenderedItems = items
+                        handleChatItemsUpdated(items)
                     }
                 }
                 launch {
@@ -230,37 +222,17 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                     }
                 }
                 launch {
-                    viewModel.showCharCount.collect {
-                        updateAdapterSettings()
-                    }
-                }
-                launch {
-                    viewModel.showTokenCount.collect {
-                        updateAdapterSettings()
-                    }
-                }
-                launch {
-                    viewModel.showModelName.collect {
-                        updateAdapterSettings()
-                    }
-                }
-                launch {
-                    viewModel.showTimestamp.collect {
-                        updateAdapterSettings()
+                    viewModel.renderSettings.collect { settings ->
+                        updateAdapterSettings(settings)
                     }
                 }
             }
         }
     }
 
-    private fun updateAdapterSettings() {
-        chatAdapter.updateSettings(
-            showCharCount = viewModel.showCharCount.value,
-            showTokenCount = viewModel.showTokenCount.value,
-            showModelName = viewModel.showModelName.value,
-            showTimestamp = viewModel.showTimestamp.value
-        )
-        if (chatAdapter.itemCount > 0) {
+    private fun updateAdapterSettings(settings: ChatRenderSettings) {
+        val settingsChanged = chatAdapter.updateSettings(settings)
+        if (settingsChanged && chatAdapter.itemCount > 0) {
             chatAdapter.notifyDataSetChanged()
         }
     }
@@ -271,63 +243,78 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     }
 
     private fun updatePendingStatus(phase: ChatViewModel.PendingResponsePhase) {
-        val keepBottom = shouldMaintainBottomPosition()
-        syncPendingScrollTargetWithBottomState(keepBottom)
-        val textRes = when (phase) {
-            ChatViewModel.PendingResponsePhase.IDLE -> null
-            ChatViewModel.PendingResponsePhase.THINKING -> R.string.chat_thinking
-            ChatViewModel.PendingResponsePhase.EXECUTING_TOOLS -> R.string.chat_executing_tools
-        }
+        updateBottomAnchoredChrome {
+            val textRes = when (phase) {
+                ChatViewModel.PendingResponsePhase.IDLE -> null
+                ChatViewModel.PendingResponsePhase.THINKING -> R.string.chat_thinking
+                ChatViewModel.PendingResponsePhase.EXECUTING_TOOLS -> R.string.chat_executing_tools
+            }
 
-        if (textRes == null) {
-            binding.layoutPendingStatus.visibility = android.view.View.GONE
-            binding.tvPendingStatus.text = ""
-        } else {
-            binding.layoutPendingStatus.visibility = android.view.View.VISIBLE
-            binding.tvPendingStatus.setText(textRes)
-        }
-
-        if (currentPendingScrollTarget() != PendingScrollTarget.NONE) {
-            applyPendingScrollTargetAfterLayout()
+            if (textRes == null) {
+                binding.layoutPendingStatus.visibility = android.view.View.GONE
+                binding.tvPendingStatus.text = ""
+            } else {
+                binding.layoutPendingStatus.visibility = android.view.View.VISIBLE
+                binding.tvPendingStatus.setText(textRes)
+            }
         }
     }
 
     private fun updateContextCompressionHint(hint: String?) {
-        val keepBottom = shouldMaintainBottomPosition()
-        syncPendingScrollTargetWithBottomState(keepBottom)
-        if (hint.isNullOrBlank()) {
-            binding.tvContextCompressionHint.visibility = android.view.View.GONE
-            binding.tvContextCompressionHint.text = ""
-        } else {
-            binding.tvContextCompressionHint.visibility = android.view.View.VISIBLE
-            binding.tvContextCompressionHint.text = hint
-        }
-
-        if (currentPendingScrollTarget() != PendingScrollTarget.NONE) {
-            applyPendingScrollTargetAfterLayout()
+        updateBottomAnchoredChrome {
+            if (hint.isNullOrBlank()) {
+                binding.tvContextCompressionHint.visibility = android.view.View.GONE
+                binding.tvContextCompressionHint.text = ""
+            } else {
+                binding.tvContextCompressionHint.visibility = android.view.View.VISIBLE
+                binding.tvContextCompressionHint.text = hint
+            }
         }
     }
 
     private fun updateContextUsage(info: ChatViewModel.ContextUsageInfo) {
+        updateBottomAnchoredChrome {
+            if (info.contextLimit > 0 && info.currentTokens > 0) {
+                binding.layoutContextUsage.visibility = android.view.View.VISIBLE
+                binding.progressContext.max = 100
+                binding.progressContext.progress = info.percent
+                binding.tvContextUsage.text = getString(
+                    R.string.context_usage_format,
+                    info.currentTokens.toFloat(),
+                    info.contextLimit.toFloat(),
+                    info.percent
+                )
+            } else {
+                binding.layoutContextUsage.visibility = android.view.View.GONE
+            }
+        }
+    }
+
+    private fun handleChatItemsUpdated(items: List<ChatItem>) {
+        val streamedItem = items.lastOrNull() as? ChatItem.StreamingMessage
+        val incrementalStreamingUpdate = isStreamingContentOnlyUpdate(lastRenderedItems, items)
         val keepBottom = shouldMaintainBottomPosition()
-        syncPendingScrollTargetWithBottomState(keepBottom)
-        if (info.contextLimit > 0 && info.currentTokens > 0) {
-            binding.layoutContextUsage.visibility = android.view.View.VISIBLE
-            binding.progressContext.max = 100
-            binding.progressContext.progress = info.percent
-            binding.tvContextUsage.text = getString(
-                R.string.context_usage_format,
-                info.currentTokens.toFloat(),
-                info.contextLimit.toFloat(),
-                info.percent
-            )
-        } else {
-            binding.layoutContextUsage.visibility = android.view.View.GONE
+
+        if (incrementalStreamingUpdate && streamedItem != null) {
+            chatAdapter.updateStreamingMessage(binding.rvMessages, streamedItem)
+            lastRenderedItems = items
+            return
         }
 
-        if (currentPendingScrollTarget() != PendingScrollTarget.NONE) {
-            applyPendingScrollTargetAfterLayout()
+        requestScroll(determineScrollTargetForItems(keepBottom, lastRenderedItems, items))
+        chatAdapter.syncStreamingRenderStates(items)
+        chatAdapter.submitList(items) {
+            applyScrollRequestIfNeeded()
         }
+        lastRenderedItems = items
+    }
+
+    private fun updateBottomAnchoredChrome(updateUi: () -> Unit) {
+        if (shouldMaintainBottomPosition()) {
+            ensureKeepBottomScrollRequest()
+        }
+        updateUi()
+        applyScrollRequestIfNeeded()
     }
 
     private fun isStreamingContentOnlyUpdate(
@@ -366,22 +353,22 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             current.lastOrNull() is ChatItem.AssistantMessage
     }
 
-    private fun resolveScrollTarget(
+    private fun determineScrollTargetForItems(
         keepBottom: Boolean,
         previous: List<ChatItem>,
         current: List<ChatItem>
-    ): PendingScrollTarget {
+    ): ScrollTarget {
         if (!keepBottom || current.isEmpty()) {
-            return PendingScrollTarget.NONE
+            return ScrollTarget.NONE
         }
-        return if (shouldShowLastItemFromTop(previous, current)) {
-            PendingScrollTarget.TOP_OF_LAST_ITEM
+        return if (shouldPositionLastItemAtTop(previous, current)) {
+            ScrollTarget.TOP_OF_LAST_ITEM
         } else {
-            PendingScrollTarget.KEEP_BOTTOM
+            ScrollTarget.KEEP_BOTTOM
         }
     }
 
-    private fun shouldShowLastItemFromTop(
+    private fun shouldPositionLastItemAtTop(
         previous: List<ChatItem>,
         current: List<ChatItem>
     ): Boolean {
@@ -459,66 +446,60 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             ?.scrollToPositionWithOffset(itemCount - 1, 0)
     }
 
-    private fun scrollToBottomAfterLayout() {
-        binding.rvMessages.post {
-            scrollToBottom()
-        }
-    }
-
-    private fun applyPendingScrollTargetAfterLayout() {
-        maybeApplyPendingScrollTarget()
-    }
-
-    private fun maybeApplyPendingScrollTarget() {
-        val target = currentPendingScrollTarget()
-        if (target == PendingScrollTarget.NONE || pendingScrollApplyScheduled) {
+    private fun applyScrollRequestIfNeeded() {
+        val request = currentScrollRequest()
+        if (request.target == ScrollTarget.NONE || request.applyScheduled) {
             return
         }
-        if (pendingScrollAttempts >= 6 || isScrollTargetSatisfied(target)) {
+        if (request.attempts >= 6 || isScrollTargetSatisfied(request.target)) {
             return
         }
-        pendingScrollApplyScheduled = true
+        scrollRequest = request.copy(applyScheduled = true)
         binding.rvMessages.post {
-            pendingScrollApplyScheduled = false
-            val currentTarget = currentPendingScrollTarget()
-            if (currentTarget == PendingScrollTarget.NONE) {
+            val activeRequest = currentScrollRequest()
+            if (activeRequest.target == ScrollTarget.NONE) {
+                scrollRequest = activeRequest.copy(applyScheduled = false)
                 return@post
             }
-            pendingScrollAttempts++
-            when (currentTarget) {
-                PendingScrollTarget.TOP_OF_LAST_ITEM -> scrollLastItemToTop()
-                PendingScrollTarget.KEEP_BOTTOM -> scrollToBottom()
-                PendingScrollTarget.NONE -> Unit
+            scrollRequest = activeRequest.copy(
+                attempts = activeRequest.attempts + 1,
+                applyScheduled = false
+            )
+            when (activeRequest.target) {
+                ScrollTarget.TOP_OF_LAST_ITEM -> scrollLastItemToTop()
+                ScrollTarget.KEEP_BOTTOM -> scrollToBottom()
+                ScrollTarget.NONE -> Unit
             }
         }
     }
 
-    private fun setPendingScrollTarget(target: PendingScrollTarget) {
-        pendingScrollTarget = target
-        pendingScrollTargetUntilMs = SystemClock.uptimeMillis() + 1500L
-        pendingScrollAttempts = 0
-        pendingScrollApplyScheduled = false
+    private fun requestScroll(target: ScrollTarget) {
+        scrollRequest = ScrollRequest(
+            target = target,
+            expiresAtMs = SystemClock.uptimeMillis() + 1500L
+        )
     }
 
-    private fun currentPendingScrollTarget(): PendingScrollTarget {
-        return if (SystemClock.uptimeMillis() <= pendingScrollTargetUntilMs) {
-            pendingScrollTarget
+    private fun currentScrollRequest(): ScrollRequest {
+        val nowMs = SystemClock.uptimeMillis()
+        return if (scrollRequest.isActive(nowMs)) {
+            scrollRequest
         } else {
-            PendingScrollTarget.NONE
+            ScrollRequest()
         }
     }
 
-    private fun syncPendingScrollTargetWithBottomState(keepBottom: Boolean) {
-        if (currentPendingScrollTarget() == PendingScrollTarget.NONE && keepBottom) {
-            setPendingScrollTarget(PendingScrollTarget.KEEP_BOTTOM)
+    private fun ensureKeepBottomScrollRequest() {
+        if (currentScrollRequest().target == ScrollTarget.NONE) {
+            requestScroll(ScrollTarget.KEEP_BOTTOM)
         }
     }
 
-    private fun isScrollTargetSatisfied(target: PendingScrollTarget): Boolean {
+    private fun isScrollTargetSatisfied(target: ScrollTarget): Boolean {
         return when (target) {
-            PendingScrollTarget.NONE -> true
-            PendingScrollTarget.KEEP_BOTTOM -> !binding.rvMessages.canScrollVertically(1)
-            PendingScrollTarget.TOP_OF_LAST_ITEM -> {
+            ScrollTarget.NONE -> true
+            ScrollTarget.KEEP_BOTTOM -> !binding.rvMessages.canScrollVertically(1)
+            ScrollTarget.TOP_OF_LAST_ITEM -> {
                 val layoutManager = binding.rvMessages.layoutManager as? LinearLayoutManager ?: return false
                 val targetPosition = chatAdapter.itemCount - 1
                 if (targetPosition < 0) return true
