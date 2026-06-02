@@ -2,6 +2,7 @@ package com.gao.chatbox.view
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.Fragment
 import com.gao.chatbox.view.databinding.ActivityMainBinding
 import com.gao.chatbox.view.ui.home.history.HistoryFragment
@@ -22,6 +23,7 @@ class MainActivity : AppCompatActivity() {
     private var activeFragment: Fragment? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
