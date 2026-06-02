@@ -345,13 +345,18 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         val items = chatAdapter.items.toMutableList()
         val idx = items.indexOfFirst { it is ChatItem.StreamingMessage }
         if (idx >= 0) {
-            items[idx] = ChatItem.AssistantMessage(
-                id = "msg_${System.currentTimeMillis()}",
-                content = accumulatedContent,
-                modelName = selectedModelName.ifEmpty { null },
-                tokenCount = tokenCount ?: 0,
-                createdAt = System.currentTimeMillis()
-            )
+            if (accumulatedContent.isNotBlank()) {
+                items[idx] = ChatItem.AssistantMessage(
+                    id = "msg_${System.currentTimeMillis()}",
+                    content = accumulatedContent,
+                    modelName = selectedModelName.ifEmpty { null },
+                    tokenCount = tokenCount ?: 0,
+                    createdAt = System.currentTimeMillis()
+                )
+            } else {
+                // Empty response (e.g. from tool call round with no text) - remove streaming placeholder
+                items.removeAt(idx)
+            }
             chatAdapter.submitList(items)
             if (scrollNeeded) {
                 binding.rvMessages.scrollToPosition(chatAdapter.itemCount - 1)
@@ -424,7 +429,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                     event.arguments?.let { builder.arguments.append(it) }
                 }
                 is StreamEvent.StreamEnd -> {
-                    if (event.finishReason == "tool_calls" && pendingToolCalls.isNotEmpty() && toolCallRoundCount < 5) {
+                    if (pendingToolCalls.isNotEmpty() && toolCallRoundCount < 5) {
                         toolCallRoundCount++
                         handleToolCalls(config, systemPrompt)
                     } else {
@@ -460,11 +465,13 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             )
         }
 
+        // Build message history BEFORE adding tool call items (history only needs user/assistant)
+        val messageHistory = buildOpenAiMessageHistory()
+
         // Build tool calls and add ToolCallMessage items
         val toolCalls = mutableListOf<ToolCall>()
         val toolCallMessages = mutableListOf<ChatItem.ToolCallMessage>()
         for ((index, builder) in pendingToolCalls.toSortedMap()) {
-            // Ensure tool call has a valid id
             val toolCallId = builder.id.ifEmpty { "call_${System.currentTimeMillis()}_$index" }
             val toolCall = ToolCall(
                 id = toolCallId,
@@ -484,6 +491,11 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             )
         }
         items.addAll(toolCallMessages)
+
+        // Add streaming placeholder for second round in the SAME submitList call
+        val now = System.currentTimeMillis()
+        thinkingStartTime = now
+        items.add(ChatItem.StreamingMessage(id = "streaming_$now", isThinking = true, thinkingStartTime = thinkingStartTime))
         chatAdapter.submitList(items)
         scrollToBottom()
 
@@ -493,18 +505,17 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         })
         dbManager.addToolCallMessage(
             conversationId = currentConversationId,
-            assistantContent = "",  // Don't save content here, it will be in the final response
+            assistantContent = "",
             toolCallsJson = toolCallsJson,
             modelName = selectedModelName.ifEmpty { null }
         )
 
-        // Execute tools and save results BEFORE creating final assistant message
+        // Execute tools and save results
         val toolResults = mutableMapOf<String, String>()
         for (toolCall in toolCalls) {
             val result = withContext(Dispatchers.IO) { executeTool(toolCall) }
             toolResults[toolCall.id] = result
 
-            // Save tool result to database
             dbManager.addToolResultMessage(
                 conversationId = currentConversationId,
                 toolCallId = toolCall.id,
@@ -528,7 +539,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             }
         }
 
-        // Create a NEW assistant message for the final response (after tool results)
+        // Create a NEW assistant message for the final response
         currentAssistantMessageId = dbManager.addAssistantMessage(
             conversationId = currentConversationId,
             content = "",
@@ -536,19 +547,9 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             isStreaming = true
         )
 
-        // Build message history for second round
-        val messageHistory = buildOpenAiMessageHistory()
         pendingToolCalls.clear()
         accumulatedContent = ""
         lastUIUpdateTime = 0L
-
-        // Add streaming placeholder for second round
-        val now = System.currentTimeMillis()
-        thinkingStartTime = now
-        val streamItems = chatAdapter.items.toMutableList()
-        streamItems.add(ChatItem.StreamingMessage(id = "streaming_$now", isThinking = true, thinkingStartTime = thinkingStartTime))
-        chatAdapter.submitList(streamItems)
-        scrollToBottom()
 
         // Send tool results and continue streaming
         try {
