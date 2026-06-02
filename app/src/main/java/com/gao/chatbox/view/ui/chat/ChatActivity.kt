@@ -8,6 +8,7 @@ import android.database.Cursor
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.view.inputmethod.InputMethodManager
 import android.widget.ExpandableListAdapter
@@ -38,6 +39,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
+
+    private enum class PendingScrollTarget {
+        NONE,
+        KEEP_BOTTOM,
+        TOP_OF_LAST_ITEM
+    }
 
     companion object {
         private const val EXTRA_SYSTEM_PROMPT_CONTENT = "system_prompt_content"
@@ -77,6 +84,10 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         (application as ChatBoxApp).appComponent.chatViewModelFactory()
     }
 
+    private var pendingScrollTarget: PendingScrollTarget = PendingScrollTarget.NONE
+    private var pendingScrollTargetUntilMs: Long = 0L
+    private var pendingScrollAttempts: Int = 0
+    private var pendingScrollApplyScheduled = false
     private var dialog: AlertDialog? = null
 
     private val imagePickerLauncher =
@@ -131,6 +142,9 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             adapter = chatAdapter
             itemAnimator = null
         }
+        binding.rvMessages.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            maybeApplyPendingScrollTarget()
+        }
 
         // Bottom toolbar actions
         binding.btnNewChat.setOnClickListener { onNewChat() }
@@ -159,15 +173,15 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                         val keepBottom = shouldMaintainBottomPosition()
                         val streamedItem = items.lastOrNull() as? ChatItem.StreamingMessage
                         val incrementalStreamingUpdate = isStreamingContentOnlyUpdate(lastRenderedItems, items)
+                        val scrollTarget = resolveScrollTarget(keepBottom, lastRenderedItems, items)
 
                         if (incrementalStreamingUpdate && streamedItem != null) {
                             chatAdapter.updateStreamingMessage(binding.rvMessages, streamedItem)
                         } else {
+                            setPendingScrollTarget(scrollTarget)
                             chatAdapter.syncStreamingRenderStates(items)
                             chatAdapter.submitList(items) {
-                                if (keepBottom) {
-                                    scrollToBottom()
-                                }
+                                applyPendingScrollTargetAfterLayout()
                             }
                         }
                         lastRenderedItems = items
@@ -258,6 +272,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     private fun updatePendingStatus(phase: ChatViewModel.PendingResponsePhase) {
         val keepBottom = shouldMaintainBottomPosition()
+        syncPendingScrollTargetWithBottomState(keepBottom)
         val textRes = when (phase) {
             ChatViewModel.PendingResponsePhase.IDLE -> null
             ChatViewModel.PendingResponsePhase.THINKING -> R.string.chat_thinking
@@ -272,13 +287,14 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             binding.tvPendingStatus.setText(textRes)
         }
 
-        if (keepBottom) {
-            scrollToBottomAfterLayout()
+        if (currentPendingScrollTarget() != PendingScrollTarget.NONE) {
+            applyPendingScrollTargetAfterLayout()
         }
     }
 
     private fun updateContextCompressionHint(hint: String?) {
         val keepBottom = shouldMaintainBottomPosition()
+        syncPendingScrollTargetWithBottomState(keepBottom)
         if (hint.isNullOrBlank()) {
             binding.tvContextCompressionHint.visibility = android.view.View.GONE
             binding.tvContextCompressionHint.text = ""
@@ -287,13 +303,14 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             binding.tvContextCompressionHint.text = hint
         }
 
-        if (keepBottom) {
-            scrollToBottomAfterLayout()
+        if (currentPendingScrollTarget() != PendingScrollTarget.NONE) {
+            applyPendingScrollTargetAfterLayout()
         }
     }
 
     private fun updateContextUsage(info: ChatViewModel.ContextUsageInfo) {
         val keepBottom = shouldMaintainBottomPosition()
+        syncPendingScrollTargetWithBottomState(keepBottom)
         if (info.contextLimit > 0 && info.currentTokens > 0) {
             binding.layoutContextUsage.visibility = android.view.View.VISIBLE
             binding.progressContext.max = 100
@@ -308,8 +325,8 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             binding.layoutContextUsage.visibility = android.view.View.GONE
         }
 
-        if (keepBottom) {
-            scrollToBottomAfterLayout()
+        if (currentPendingScrollTarget() != PendingScrollTarget.NONE) {
+            applyPendingScrollTargetAfterLayout()
         }
     }
 
@@ -338,6 +355,46 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             if (oldItem != newItem) return false
         }
         return streamingDiffCount == 1
+    }
+
+    private fun isStreamingCompletedToAssistant(
+        previous: List<ChatItem>,
+        current: List<ChatItem>
+    ): Boolean {
+        if (previous.size != current.size || previous.isEmpty()) return false
+        return previous.lastOrNull() is ChatItem.StreamingMessage &&
+            current.lastOrNull() is ChatItem.AssistantMessage
+    }
+
+    private fun resolveScrollTarget(
+        keepBottom: Boolean,
+        previous: List<ChatItem>,
+        current: List<ChatItem>
+    ): PendingScrollTarget {
+        if (!keepBottom || current.isEmpty()) {
+            return PendingScrollTarget.NONE
+        }
+        return if (shouldShowLastItemFromTop(previous, current)) {
+            PendingScrollTarget.TOP_OF_LAST_ITEM
+        } else {
+            PendingScrollTarget.KEEP_BOTTOM
+        }
+    }
+
+    private fun shouldShowLastItemFromTop(
+        previous: List<ChatItem>,
+        current: List<ChatItem>
+    ): Boolean {
+        if (current.isEmpty() || previous.isEmpty()) return false
+        if (isStreamingCompletedToAssistant(previous, current)) return true
+        if (current.size == previous.size + 1) {
+            return when (current.last()) {
+                is ChatItem.UserMessage,
+                is ChatItem.StreamingMessage -> true
+                else -> false
+            }
+        }
+        return false
     }
 
     // region ChatAdapterListener
@@ -387,14 +444,88 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     private fun scrollToBottom() {
         val itemCount = chatAdapter.itemCount
-        if (itemCount > 0) {
-            binding.rvMessages.scrollToPosition(itemCount - 1)
+        val remainingScroll = binding.rvMessages.computeVerticalScrollRange() -
+            binding.rvMessages.computeVerticalScrollOffset() -
+            binding.rvMessages.computeVerticalScrollExtent()
+        if (itemCount > 0 && remainingScroll > 0) {
+            binding.rvMessages.scrollBy(0, remainingScroll)
         }
+    }
+
+    private fun scrollLastItemToTop() {
+        val itemCount = chatAdapter.itemCount
+        if (itemCount <= 0) return
+        (binding.rvMessages.layoutManager as? LinearLayoutManager)
+            ?.scrollToPositionWithOffset(itemCount - 1, 0)
     }
 
     private fun scrollToBottomAfterLayout() {
         binding.rvMessages.post {
             scrollToBottom()
+        }
+    }
+
+    private fun applyPendingScrollTargetAfterLayout() {
+        maybeApplyPendingScrollTarget()
+    }
+
+    private fun maybeApplyPendingScrollTarget() {
+        val target = currentPendingScrollTarget()
+        if (target == PendingScrollTarget.NONE || pendingScrollApplyScheduled) {
+            return
+        }
+        if (pendingScrollAttempts >= 6 || isScrollTargetSatisfied(target)) {
+            return
+        }
+        pendingScrollApplyScheduled = true
+        binding.rvMessages.post {
+            pendingScrollApplyScheduled = false
+            val currentTarget = currentPendingScrollTarget()
+            if (currentTarget == PendingScrollTarget.NONE) {
+                return@post
+            }
+            pendingScrollAttempts++
+            when (currentTarget) {
+                PendingScrollTarget.TOP_OF_LAST_ITEM -> scrollLastItemToTop()
+                PendingScrollTarget.KEEP_BOTTOM -> scrollToBottom()
+                PendingScrollTarget.NONE -> Unit
+            }
+        }
+    }
+
+    private fun setPendingScrollTarget(target: PendingScrollTarget) {
+        pendingScrollTarget = target
+        pendingScrollTargetUntilMs = SystemClock.uptimeMillis() + 1500L
+        pendingScrollAttempts = 0
+        pendingScrollApplyScheduled = false
+    }
+
+    private fun currentPendingScrollTarget(): PendingScrollTarget {
+        return if (SystemClock.uptimeMillis() <= pendingScrollTargetUntilMs) {
+            pendingScrollTarget
+        } else {
+            PendingScrollTarget.NONE
+        }
+    }
+
+    private fun syncPendingScrollTargetWithBottomState(keepBottom: Boolean) {
+        if (currentPendingScrollTarget() == PendingScrollTarget.NONE && keepBottom) {
+            setPendingScrollTarget(PendingScrollTarget.KEEP_BOTTOM)
+        }
+    }
+
+    private fun isScrollTargetSatisfied(target: PendingScrollTarget): Boolean {
+        return when (target) {
+            PendingScrollTarget.NONE -> true
+            PendingScrollTarget.KEEP_BOTTOM -> !binding.rvMessages.canScrollVertically(1)
+            PendingScrollTarget.TOP_OF_LAST_ITEM -> {
+                val layoutManager = binding.rvMessages.layoutManager as? LinearLayoutManager ?: return false
+                val targetPosition = chatAdapter.itemCount - 1
+                if (targetPosition < 0) return true
+                val targetView = layoutManager.findViewByPosition(targetPosition) ?: return false
+                layoutManager.findFirstVisibleItemPosition() == targetPosition &&
+                    kotlin.math.abs(targetView.top) <= 1
+            }
         }
     }
 
