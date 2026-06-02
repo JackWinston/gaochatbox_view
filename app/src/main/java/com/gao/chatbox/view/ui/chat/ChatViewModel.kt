@@ -19,6 +19,7 @@ import com.gao.chatbox.view.data.repository.MessageContext
 import com.gao.chatbox.view.data.repository.StreamResult
 import com.gao.chatbox.view.util.DebugLogManager
 import com.gao.chatbox.view.util.ModelConfigManager
+import com.gao.chatbox.view.util.ModelContextLimitResolver
 import com.gao.chatbox.view.util.WebSearchTool
 import com.google.gson.Gson
 import kotlinx.coroutines.async
@@ -39,6 +40,7 @@ class ChatViewModel(
     private val chatRepository: ChatRepository,
     private val dbManager: ChatDatabaseManager,
     private val modelConfigManager: ModelConfigManager,
+    private val modelContextLimitResolver: ModelContextLimitResolver,
     private val dataStore: DataStore<Preferences>
 ) : ViewModel() {
 
@@ -770,11 +772,20 @@ class ChatViewModel(
     fun selectModel(modelName: String, config: ModelConfig) {
         _selectedModelName.value = modelName
         viewModelScope.launch {
-            if (!config.isDefault) {
-                modelConfigManager.update(config.copy(isDefault = true, defaultModel = modelName))
-            } else if (config.defaultModel != modelName) {
-                modelConfigManager.update(config.copy(defaultModel = modelName))
+            val shouldKeepManualContext = config.contextLimitManuallySet != false
+            val resolvedContextLimit = if (shouldKeepManualContext) {
+                config.contextLimit
+            } else {
+                modelContextLimitResolver.resolve(config, modelName)
             }
+            val updated = config.copy(
+                isDefault = true,
+                defaultModel = modelName,
+                contextLimit = resolvedContextLimit,
+                detectedContextLimit = if (shouldKeepManualContext) config.detectedContextLimit else resolvedContextLimit,
+                contextLimitManuallySet = if (shouldKeepManualContext) config.contextLimitManuallySet else false
+            )
+            modelConfigManager.update(updated)
         }
     }
 
@@ -863,11 +874,19 @@ class ChatViewModel(
         private val chatRepository: ChatRepository,
         private val dbManager: ChatDatabaseManager,
         private val modelConfigManager: ModelConfigManager,
+        private val modelContextLimitResolver: ModelContextLimitResolver,
         private val dataStore: DataStore<Preferences>
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return ChatViewModel(context, chatRepository, dbManager, modelConfigManager, dataStore) as T
+            return ChatViewModel(
+                context,
+                chatRepository,
+                dbManager,
+                modelConfigManager,
+                modelContextLimitResolver,
+                dataStore
+            ) as T
         }
     }
 }

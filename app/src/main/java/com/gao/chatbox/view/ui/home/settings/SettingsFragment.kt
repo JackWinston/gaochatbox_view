@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.PopupMenu
 import android.widget.Toast
+import androidx.core.widget.doAfterTextChanged
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
@@ -20,6 +21,7 @@ import com.gao.chatbox.view.data.model.ModelConfig.Companion.API_TYPE_ANTHROPIC
 import com.gao.chatbox.view.data.model.ModelConfig.Companion.API_TYPE_OPENAI
 import com.gao.chatbox.view.databinding.DialogModelConfigBinding
 import com.gao.chatbox.view.databinding.FragmentSettingsBinding
+import com.gao.chatbox.view.util.ModelContextLimitResolver
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
 
@@ -251,12 +253,77 @@ class SettingsFragment : Fragment() {
         var fetchedModels = mutableListOf<String>()
         var selectedApiType = existing?.apiType ?: API_TYPE_OPENAI
         var selectedDefaultModel = existing?.defaultModel ?: ""
+        var detectedContextLimit = existing?.detectedContextLimit?.takeIf { it > 0 }
+        var contextLimitManual = existing?.contextLimitManuallySet != false
+        var suppressContextWatcher = false
 
         val apiTypeLabels = listOf(
             getString(R.string.api_type_openai),
             getString(R.string.api_type_anthropic)
         )
         val apiTypeValues = listOf(API_TYPE_OPENAI, API_TYPE_ANTHROPIC)
+
+        fun currentModelName(): String {
+            return if (selectedApiType == API_TYPE_OPENAI) {
+                selectedDefaultModel
+            } else {
+                dialogBinding.etAnthropicModel.text?.toString()?.trim().orEmpty()
+            }
+        }
+
+        fun updateContextHelper() {
+            dialogBinding.tilContextLimit.helperText = if (contextLimitManual) {
+                getString(R.string.context_limit_helper_manual)
+            } else {
+                getString(R.string.context_limit_helper_auto)
+            }
+        }
+
+        fun setContextLimitText(value: Int) {
+            suppressContextWatcher = true
+            dialogBinding.etContextLimit.setText(value.toString())
+            suppressContextWatcher = false
+        }
+
+        fun applyResolvedContextLimit(value: Int) {
+            detectedContextLimit = value
+            if (!contextLimitManual) {
+                setContextLimitText(value)
+                updateContextHelper()
+            }
+        }
+
+        fun resolveContextLimitIfPossible(showErrorToast: Boolean = false) {
+            if (contextLimitManual) return
+            val apiUrl = dialogBinding.etApiUrl.text?.toString()?.trim().orEmpty()
+            val apiKey = dialogBinding.etApiKey.text?.toString()?.trim().orEmpty()
+            val modelName = currentModelName()
+            if (apiUrl.isBlank() || apiKey.isBlank() || modelName.isBlank()) {
+                applyResolvedContextLimit(ModelContextLimitResolver.DEFAULT_CONTEXT_LIMIT)
+                return
+            }
+
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    val resolved = viewModel.resolveContextLimit(
+                        apiType = selectedApiType,
+                        apiUrl = apiUrl,
+                        apiKey = apiKey,
+                        modelName = modelName
+                    )
+                    applyResolvedContextLimit(resolved)
+                } catch (e: Exception) {
+                    applyResolvedContextLimit(ModelContextLimitResolver.DEFAULT_CONTEXT_LIMIT)
+                    if (showErrorToast) {
+                        Toast.makeText(
+                            requireContext(),
+                            getString(R.string.msg_fetch_failed, e.message ?: "Unknown"),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+        }
 
         fun updateUiForApiType(apiType: String) {
             selectedApiType = apiType
@@ -277,6 +344,9 @@ class SettingsFragment : Fragment() {
                 dialogBinding.sliderTemperature.stepSize = 5f
             }
             dialogBinding.sliderTemperature.value = dialogBinding.sliderTemperature.value.coerceIn(0f, dialogBinding.sliderTemperature.valueTo)
+            if (!contextLimitManual) {
+                resolveContextLimitIfPossible()
+            }
         }
 
         dialogBinding.etApiType.setOnClickListener {
@@ -286,9 +356,6 @@ class SettingsFragment : Fragment() {
                 .setSingleChoiceItems(apiTypeLabels.toTypedArray(), currentIndex) { dialog, which ->
                     val newType = apiTypeValues[which]
                     updateUiForApiType(newType)
-                    if (newType == API_TYPE_ANTHROPIC && dialogBinding.etContextLimit.text.isNullOrEmpty()) {
-                        dialogBinding.etContextLimit.setText("200000")
-                    }
                     dialog.dismiss()
                 }
                 .show()
@@ -305,17 +372,50 @@ class SettingsFragment : Fragment() {
                 .setSingleChoiceItems(fetchedModels.toTypedArray(), currentIndex) { dialog, which ->
                     selectedDefaultModel = fetchedModels[which]
                     dialogBinding.etDefaultModel.setText(selectedDefaultModel)
+                    resolveContextLimitIfPossible()
                     dialog.dismiss()
                 }
                 .show()
+        }
+
+        dialogBinding.etContextLimit.doAfterTextChanged {
+            if (suppressContextWatcher) return@doAfterTextChanged
+            contextLimitManual = true
+            updateContextHelper()
+        }
+
+        dialogBinding.etAnthropicModel.doAfterTextChanged {
+            if (selectedApiType == API_TYPE_ANTHROPIC) {
+                selectedDefaultModel = it?.toString()?.trim().orEmpty()
+            }
+        }
+        dialogBinding.etAnthropicModel.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                resolveContextLimitIfPossible()
+            }
+        }
+        dialogBinding.etApiUrl.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                resolveContextLimitIfPossible()
+            }
+        }
+        dialogBinding.etApiKey.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                resolveContextLimitIfPossible()
+            }
         }
 
         if (existing != null) {
             dialogBinding.etName.setText(existing.tag)
             dialogBinding.etApiUrl.setText(existing.apiUrl)
             dialogBinding.etApiKey.setText(existing.apiKey)
-            dialogBinding.etContextLimit.setText(existing.contextLimit.toString())
             dialogBinding.switchDefault.isChecked = existing.isDefault
+            setContextLimitText(
+                existing.contextLimit.takeIf { it > 0 }
+                    ?: detectedContextLimit
+                    ?: ModelContextLimitResolver.DEFAULT_CONTEXT_LIMIT
+            )
+            updateContextHelper()
 
             updateUiForApiType(existing.apiType)
             dialogBinding.sliderTemperature.value = (existing.temperature * 100).coerceIn(0f, dialogBinding.sliderTemperature.valueTo)
@@ -331,9 +431,15 @@ class SettingsFragment : Fragment() {
             } else {
                 dialogBinding.etAnthropicModel.setText(existing.defaultModel)
             }
+            if (!contextLimitManual) {
+                resolveContextLimitIfPossible()
+            }
         } else {
             dialogBinding.sliderTemperature.value = 70f
             dialogBinding.tvTemperatureLabel.text = getString(R.string.label_temperature, 0.7f)
+            contextLimitManual = false
+            setContextLimitText(ModelContextLimitResolver.DEFAULT_CONTEXT_LIMIT)
+            updateContextHelper()
             updateUiForApiType(API_TYPE_OPENAI)
         }
 
@@ -360,13 +466,10 @@ class SettingsFragment : Fragment() {
                     fetchedModels.addAll(modelIds)
 
                     if (modelIds.isNotEmpty()) {
-                        selectedDefaultModel = modelIds[0]
+                        selectedDefaultModel = selectedDefaultModel.takeIf { it in modelIds } ?: modelIds[0]
                         dialogBinding.etDefaultModel.setText(selectedDefaultModel)
                     }
-
-                    if (dialogBinding.etContextLimit.text.isNullOrEmpty()) {
-                        dialogBinding.etContextLimit.setText("4096")
-                    }
+                    resolveContextLimitIfPossible()
 
                     Toast.makeText(requireContext(), getString(R.string.msg_fetch_success, modelIds.size), Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
@@ -389,7 +492,9 @@ class SettingsFragment : Fragment() {
 
                 val apiUrl = dialogBinding.etApiUrl.text?.toString()?.trim() ?: ""
                 val apiKey = dialogBinding.etApiKey.text?.toString()?.trim() ?: ""
-                val contextLimit = dialogBinding.etContextLimit.text?.toString()?.toIntOrNull() ?: 4096
+                val contextLimit = dialogBinding.etContextLimit.text?.toString()?.toIntOrNull()
+                    ?: detectedContextLimit
+                    ?: ModelContextLimitResolver.DEFAULT_CONTEXT_LIMIT
                 val temperature = dialogBinding.sliderTemperature.value / 100f
                 val isDefault = dialogBinding.switchDefault.isChecked
 
@@ -413,6 +518,8 @@ class SettingsFragment : Fragment() {
                     models = models,
                     defaultModel = defaultModel,
                     contextLimit = contextLimit,
+                    detectedContextLimit = detectedContextLimit,
+                    contextLimitManuallySet = contextLimitManual,
                     temperature = temperature,
                     isDefault = isDefault,
                     createdAt = existing?.createdAt ?: System.currentTimeMillis()

@@ -21,6 +21,7 @@ class ModelConfigManager @Inject constructor(
 
     private val gson = Gson()
     private val listType = object : TypeToken<List<ModelConfig>>() {}.type
+    private val contextCacheType = object : TypeToken<Map<String, Int>>() {}.type
 
     suspend fun init() {
         val initialized = dataStore.data.map { prefs ->
@@ -81,6 +82,38 @@ class ModelConfigManager @Inject constructor(
         saveList(list)
     }
 
+    suspend fun getCachedContextLimit(cacheKey: String): Int? {
+        val json = dataStore.data.map { prefs ->
+            prefs[KEY_CONTEXT_LIMIT_CACHE]
+        }.first() ?: return null
+        return try {
+            val cache = gson.fromJson<Map<String, Int>>(json, contextCacheType) ?: emptyMap()
+            cache[cacheKey]
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun cacheContextLimit(cacheKey: String, contextLimit: Int) {
+        if (cacheKey.isBlank() || contextLimit <= 0) return
+        val current = getContextLimitCache().toMutableMap()
+        current[cacheKey] = contextLimit
+        dataStore.edit { prefs ->
+            prefs[KEY_CONTEXT_LIMIT_CACHE] = gson.toJson(current)
+        }
+    }
+
+    private suspend fun getContextLimitCache(): Map<String, Int> {
+        val json = dataStore.data.map { prefs ->
+            prefs[KEY_CONTEXT_LIMIT_CACHE]
+        }.first() ?: return emptyMap()
+        return try {
+            gson.fromJson<Map<String, Int>>(json, contextCacheType) ?: emptyMap()
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
     private suspend fun saveList(list: List<ModelConfig>) {
         dataStore.edit { prefs ->
             prefs[KEY_MODELS] = gson.toJson(list)
@@ -90,5 +123,6 @@ class ModelConfigManager @Inject constructor(
     companion object {
         private val KEY_MODELS = stringPreferencesKey("model_configs")
         private val KEY_INITIALIZED = booleanPreferencesKey("models_initialized")
+        private val KEY_CONTEXT_LIMIT_CACHE = stringPreferencesKey("model_context_limit_cache")
     }
 }

@@ -47,6 +47,8 @@
     <string name="msg_fetch_first">请先获取模型列表</string>
     <string name="delete_model_confirm_message">确定要删除这个模型配置吗？</string>
     <string name="msg_name_required">请输入模型名称</string>
+    <string name="context_limit_helper_auto">自动发现/缓存结果；找不到时默认 64K</string>
+    <string name="context_limit_helper_manual">用户自定义值，后续自动发现不会覆盖</string>
 
     <!-- UI settings -->
     <string name="ui_show_char_count">显示字符数</string>

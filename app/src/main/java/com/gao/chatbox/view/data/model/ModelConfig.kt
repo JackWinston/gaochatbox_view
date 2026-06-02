@@ -10,7 +10,9 @@ data class ModelConfig(
     val apiKey: String,
     val models: List<String> = emptyList(),
     val defaultModel: String = "",
-    val contextLimit: Int = 4096,
+    val contextLimit: Int = 65536,
+    val detectedContextLimit: Int? = null,
+    val contextLimitManuallySet: Boolean? = null,
     val temperature: Float = 0.7f,
     val isDefault: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()

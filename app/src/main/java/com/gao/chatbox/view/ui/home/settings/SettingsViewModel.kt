@@ -12,6 +12,7 @@ import com.gao.chatbox.view.data.model.ModelConfig
 import com.gao.chatbox.view.util.ApiClient
 import com.gao.chatbox.view.util.LanguageManager
 import com.gao.chatbox.view.util.ModelConfigManager
+import com.gao.chatbox.view.util.ModelContextLimitResolver
 import com.gao.chatbox.view.util.ThemeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +23,7 @@ import javax.inject.Inject
 
 class SettingsViewModel(
     private val modelConfigManager: ModelConfigManager,
+    private val modelContextLimitResolver: ModelContextLimitResolver,
     private val dataStore: DataStore<Preferences>,
     private val languageManager: LanguageManager,
     private val themeManager: ThemeManager
@@ -172,15 +174,33 @@ class SettingsViewModel(
         }
     }
 
+    suspend fun resolveContextLimit(
+        apiType: String,
+        apiUrl: String,
+        apiKey: String,
+        modelName: String
+    ): Int {
+        return withContext(Dispatchers.IO) {
+            modelContextLimitResolver.resolve(apiType, apiUrl, apiKey, modelName)
+        }
+    }
+
     class Factory @Inject constructor(
         private val modelConfigManager: ModelConfigManager,
+        private val modelContextLimitResolver: ModelContextLimitResolver,
         private val dataStore: DataStore<Preferences>,
         private val languageManager: LanguageManager,
         private val themeManager: ThemeManager
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return SettingsViewModel(modelConfigManager, dataStore, languageManager, themeManager) as T
+            return SettingsViewModel(
+                modelConfigManager,
+                modelContextLimitResolver,
+                dataStore,
+                languageManager,
+                themeManager
+            ) as T
         }
     }
 }
