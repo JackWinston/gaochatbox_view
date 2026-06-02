@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
 import com.gao.chatbox.view.data.model.ModelConfig
 import com.gao.chatbox.view.data.remote.OpenAiChatMessage
@@ -83,6 +84,18 @@ class ChatViewModel(
     private val _hasPendingAttachment = MutableStateFlow(false)
     val hasPendingAttachment: StateFlow<Boolean> = _hasPendingAttachment
 
+    private val _contextCompressionHint = MutableStateFlow<String?>(null)
+    val contextCompressionHint: StateFlow<String?> = _contextCompressionHint
+
+    data class ContextUsageInfo(
+        val currentTokens: Int = 0,
+        val contextLimit: Int = 0,
+        val percent: Int = 0
+    )
+
+    private val _contextUsage = MutableStateFlow(ContextUsageInfo())
+    val contextUsage: StateFlow<ContextUsageInfo> = _contextUsage
+
     // UI Settings
     private val _showCharCount = MutableStateFlow(false)
     val showCharCount: StateFlow<Boolean> = _showCharCount
@@ -113,6 +126,7 @@ class ChatViewModel(
     private var pendingToolFallbackMessage: String? = null
     private var activeStreamingItemId: String? = null
     private var currentToolCallRoundCount = 0
+    private val contextCompressionPlanner = ContextCompressionPlanner()
 
     enum class PendingResponsePhase {
         IDLE,
@@ -268,6 +282,7 @@ class ChatViewModel(
             }
 
             _chatItems.value = items
+            refreshContextUsage()
         }
     }
 
@@ -305,8 +320,20 @@ class ChatViewModel(
 
             val items = _chatItems.value.toMutableList()
             val now = System.currentTimeMillis()
+            val contextLimit = resolveContextLimit(config)
             val displayText = buildDisplayMessageText(text, attachment)
-            val requestText = buildRequestMessageText(text, attachment)
+            val plannedRequest = contextCompressionPlanner.planInitialRequest(
+                previousItems = items,
+                text = text,
+                attachmentName = attachment?.displayName,
+                fileContent = attachment?.fileContent,
+                systemPrompt = systemPromptContent,
+                contextLimit = contextLimit,
+                enableWebSearch = _webSearchEnabled.value,
+                hasImageAttachment = attachment?.imageBase64 != null
+            )
+            val requestText = plannedRequest.userMessage
+            updateContextCompressionHint(plannedRequest.report)
 
             // Insert timestamp if needed
             val timestamp = ChatItemBuilder.buildTimestampIfNeeded(items, now)
@@ -328,16 +355,6 @@ class ChatViewModel(
             _chatItems.value = items
             clearPendingAttachment()
 
-            // Build message history
-            val userMessages = items.filterIsInstance<ChatItem.UserMessage>()
-            val assistantMessages = items.filterIsInstance<ChatItem.AssistantMessage>()
-            val history = mutableListOf<MessageContext>()
-            val pairs = minOf(userMessages.size, assistantMessages.size)
-            for (i in 0 until pairs) {
-                history.add(MessageContext("user", userMessages[i].requestContent))
-                history.add(MessageContext("assistant", assistantMessages[i].content))
-            }
-
             _isStreaming.value = true
             _pendingResponsePhase.value = PendingResponsePhase.THINKING
             accumulatedContent = ""
@@ -353,7 +370,7 @@ class ChatViewModel(
                     displayMessage = displayText,
                     attachmentName = attachment?.displayName,
                     imageUri = attachment?.imageUri,
-                    history = history,
+                    history = plannedRequest.history,
                     config = config,
                     systemPromptTag = systemPromptTag.ifBlank { null },
                     systemPrompt = systemPromptContent.ifBlank { null },
@@ -365,6 +382,11 @@ class ChatViewModel(
                 )
                 conversationId = result.conversationId
                 currentAssistantMessageId = result.assistantMessageId
+                logCompressionReport(
+                    conversationId = result.conversationId,
+                    type = "Context Compression (Initial)",
+                    report = plannedRequest.report
+                )
 
                 collectStream(
                     result = result,
@@ -576,9 +598,26 @@ class ChatViewModel(
 
         // Send tool results and continue streaming
         try {
+            val plannedToolRequest = contextCompressionPlanner.planToolFollowUp(
+                historyItems = historyItems,
+                systemPrompt = systemPromptContent,
+                contextLimit = resolveContextLimit(config),
+                enableWebSearch = _webSearchEnabled.value,
+                reservedTexts = buildReservedToolTexts(
+                    assistantToolCallContent = assistantToolCallContent,
+                    toolCalls = toolCalls,
+                    toolResults = toolResults
+                )
+            )
+            updateContextCompressionHint(plannedToolRequest.report)
+            logCompressionReport(
+                conversationId = conversationId,
+                type = "Context Compression (Tool Follow-up)",
+                report = plannedToolRequest.report
+            )
             val secondResult = chatRepository.sendToolResult(
                 conversationId = conversationId,
-                history = buildOpenAiMessageHistory(historyItems),
+                history = plannedToolRequest.history,
                 assistantContent = assistantToolCallContent,
                 toolCalls = toolCalls,
                 toolResults = toolResults,
@@ -599,6 +638,27 @@ class ChatViewModel(
         }
     }
 
+    private fun buildReservedToolTexts(
+        assistantToolCallContent: String?,
+        toolCalls: List<ToolCall>,
+        toolResults: Map<String, String>
+    ): List<String> {
+        val reservedTexts = mutableListOf<String>()
+        assistantToolCallContent?.takeIf { it.isNotBlank() }?.let { reservedTexts += it }
+        toolCalls.forEach { toolCall ->
+            reservedTexts += buildString {
+                append(toolCall.function.name)
+                append('\n')
+                append(toolCall.function.arguments)
+                toolResults[toolCall.id]?.takeIf { it.isNotBlank() }?.let { result ->
+                    append('\n')
+                    append(result)
+                }
+            }
+        }
+        return reservedTexts
+    }
+
     private fun executeTool(toolCall: ToolCall): String {
         return when (toolCall.function.name) {
             "search_web" -> {
@@ -612,6 +672,75 @@ class ChatViewModel(
                 }
             }
             else -> "未知工具: ${toolCall.function.name}"
+        }
+    }
+
+    private suspend fun resolveContextLimit(config: ModelConfig): Int {
+        val modelName = _selectedModelName.value.ifEmpty { config.defaultModel }
+        return modelContextLimitResolver.resolve(config, modelName)
+    }
+
+    fun refreshContextUsage() {
+        viewModelScope.launch {
+            if (conversationId <= 0L) {
+                _contextUsage.value = ContextUsageInfo()
+                return@launch
+            }
+            val config = modelConfigManager.getDefault()
+            val contextLimit = if (config != null) {
+                resolveContextLimit(config)
+            } else {
+                ModelContextLimitResolver.DEFAULT_CONTEXT_LIMIT
+            }
+            val totalTokens = dbManager.getTotalTokens(conversationId)
+            val percent = if (contextLimit > 0) ((totalTokens.toFloat() / contextLimit) * 100).toInt().coerceIn(0, 100) else 0
+            _contextUsage.value = ContextUsageInfo(
+                currentTokens = totalTokens,
+                contextLimit = contextLimit,
+                percent = percent
+            )
+        }
+    }
+
+    private fun logCompressionReport(
+        conversationId: Long,
+        type: String,
+        report: ContextCompressionPlanner.CompressionReport
+    ) {
+        DebugLogManager.appendLog(
+            context = context,
+            conversationId = conversationId,
+            type = type,
+            url = "local://context-compression",
+            requestBody = Gson().toJson(report),
+            responseBody = null
+        )
+    }
+
+    private fun updateContextCompressionHint(
+        report: ContextCompressionPlanner.CompressionReport
+    ) {
+        val attachmentCompressed = report.attachmentStrategy == "excerpt"
+        val hasHistoryCompression = report.summarizedHistoryMessages > 0
+        _contextCompressionHint.value = when {
+            hasHistoryCompression && attachmentCompressed -> {
+                context.getString(
+                    R.string.chat_context_compression_with_attachment,
+                    report.keptHistoryMessages,
+                    report.summarizedHistoryMessages
+                )
+            }
+            hasHistoryCompression -> {
+                context.getString(
+                    R.string.chat_context_compression_history_only,
+                    report.keptHistoryMessages,
+                    report.summarizedHistoryMessages
+                )
+            }
+            attachmentCompressed -> {
+                context.getString(R.string.chat_context_compression_attachment_only)
+            }
+            else -> null
         }
     }
 
@@ -687,6 +816,7 @@ class ChatViewModel(
         activeStreamingItemId = null
         currentToolCallRoundCount = 0
         _pendingResponsePhase.value = PendingResponsePhase.IDLE
+        refreshContextUsage()
     }
 
     private fun isToolExecutionError(result: String): Boolean {

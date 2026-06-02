@@ -509,6 +509,13 @@ class SettingsFragment : Fragment() {
                     models = if (defaultModel.isNotEmpty()) listOf(defaultModel) else emptyList()
                 }
 
+                // 如果 contextLimit 是默认值且模型名称不为空，尝试通过静态表解析
+                val finalContextLimit = if (contextLimit == ModelContextLimitResolver.DEFAULT_CONTEXT_LIMIT && defaultModel.isNotEmpty()) {
+                    viewModel.resolveContextLimitStatic(selectedApiType, defaultModel) ?: contextLimit
+                } else {
+                    contextLimit
+                }
+
                 val config = ModelConfig(
                     id = existing?.id ?: java.util.UUID.randomUUID().toString(),
                     tag = tag,
@@ -517,7 +524,7 @@ class SettingsFragment : Fragment() {
                     apiKey = apiKey,
                     models = models,
                     defaultModel = defaultModel,
-                    contextLimit = contextLimit,
+                    contextLimit = finalContextLimit,
                     detectedContextLimit = detectedContextLimit,
                     contextLimitManuallySet = contextLimitManual,
                     temperature = temperature,

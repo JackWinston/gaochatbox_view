@@ -23,6 +23,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.gao.chatbox.view.ChatBoxApp
 import com.gao.chatbox.view.R
 import com.gao.chatbox.view.databinding.ActivityChatBinding
@@ -155,6 +156,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     viewModel.chatItems.collect { items ->
+                        val keepBottom = shouldMaintainBottomPosition()
                         val streamedItem = items.lastOrNull() as? ChatItem.StreamingMessage
                         val incrementalStreamingUpdate = isStreamingContentOnlyUpdate(lastRenderedItems, items)
 
@@ -162,7 +164,11 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                             chatAdapter.updateStreamingMessage(binding.rvMessages, streamedItem)
                         } else {
                             chatAdapter.syncStreamingRenderStates(items)
-                            chatAdapter.submitList(items)
+                            chatAdapter.submitList(items) {
+                                if (keepBottom) {
+                                    scrollToBottom()
+                                }
+                            }
                         }
                         lastRenderedItems = items
                     }
@@ -175,6 +181,11 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                 launch {
                     viewModel.pendingResponsePhase.collect { phase ->
                         updatePendingStatus(phase)
+                    }
+                }
+                launch {
+                    viewModel.contextCompressionHint.collect { hint ->
+                        updateContextCompressionHint(hint)
                     }
                 }
                 launch {
@@ -197,6 +208,11 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                         if (title.isNotBlank()) {
                             binding.toolbar.title = title
                         }
+                    }
+                }
+                launch {
+                    viewModel.contextUsage.collect { info ->
+                        updateContextUsage(info)
                     }
                 }
                 launch {
@@ -241,6 +257,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     }
 
     private fun updatePendingStatus(phase: ChatViewModel.PendingResponsePhase) {
+        val keepBottom = shouldMaintainBottomPosition()
         val textRes = when (phase) {
             ChatViewModel.PendingResponsePhase.IDLE -> null
             ChatViewModel.PendingResponsePhase.THINKING -> R.string.chat_thinking
@@ -253,6 +270,46 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         } else {
             binding.layoutPendingStatus.visibility = android.view.View.VISIBLE
             binding.tvPendingStatus.setText(textRes)
+        }
+
+        if (keepBottom) {
+            scrollToBottomAfterLayout()
+        }
+    }
+
+    private fun updateContextCompressionHint(hint: String?) {
+        val keepBottom = shouldMaintainBottomPosition()
+        if (hint.isNullOrBlank()) {
+            binding.tvContextCompressionHint.visibility = android.view.View.GONE
+            binding.tvContextCompressionHint.text = ""
+        } else {
+            binding.tvContextCompressionHint.visibility = android.view.View.VISIBLE
+            binding.tvContextCompressionHint.text = hint
+        }
+
+        if (keepBottom) {
+            scrollToBottomAfterLayout()
+        }
+    }
+
+    private fun updateContextUsage(info: ChatViewModel.ContextUsageInfo) {
+        val keepBottom = shouldMaintainBottomPosition()
+        if (info.contextLimit > 0 && info.currentTokens > 0) {
+            binding.layoutContextUsage.visibility = android.view.View.VISIBLE
+            binding.progressContext.max = 100
+            binding.progressContext.progress = info.percent
+            binding.tvContextUsage.text = getString(
+                R.string.context_usage_format,
+                info.currentTokens.toFloat(),
+                info.contextLimit.toFloat(),
+                info.percent
+            )
+        } else {
+            binding.layoutContextUsage.visibility = android.view.View.GONE
+        }
+
+        if (keepBottom) {
+            scrollToBottomAfterLayout()
         }
     }
 
@@ -333,6 +390,22 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         if (itemCount > 0) {
             binding.rvMessages.scrollToPosition(itemCount - 1)
         }
+    }
+
+    private fun scrollToBottomAfterLayout() {
+        binding.rvMessages.post {
+            scrollToBottom()
+        }
+    }
+
+    private fun shouldMaintainBottomPosition(threshold: Int = 1): Boolean {
+        val layoutManager = binding.rvMessages.layoutManager as? LinearLayoutManager ?: return false
+        val lastVisiblePosition = layoutManager.findLastVisibleItemPosition()
+        if (lastVisiblePosition == RecyclerView.NO_POSITION) {
+            return true
+        }
+        return !binding.rvMessages.canScrollVertically(1) ||
+            lastVisiblePosition >= chatAdapter.itemCount - 1 - threshold
     }
 
     // endregion

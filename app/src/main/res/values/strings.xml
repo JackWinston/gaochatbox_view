@@ -107,6 +107,7 @@
 
     <!-- Chat -->
     <string name="disclaimer_ai_content">内容由AI生成，请注意甄别</string>
+    <string name="context_usage_format">当前上下文使用 %1$,.0f / %2$,.0f tokens (%3$d%%)</string>
     <string name="hint_input_message">输入消息…</string>
     <string name="btn_new_chat">新建会话</string>
     <string name="btn_select_image">选择图片</string>
@@ -127,6 +128,9 @@
     <string name="chat_system_prompt_label">系统提示词</string>
     <string name="chat_thinking">正在思考中…</string>
     <string name="chat_executing_tools">正在调用工具…</string>
+    <string name="chat_context_compression_history_only">本轮已压缩上下文，保留最近 %1$d 条消息，摘要 %2$d 条消息</string>
+    <string name="chat_context_compression_with_attachment">本轮已压缩上下文，保留最近 %1$d 条消息，摘要 %2$d 条消息，附件已裁剪</string>
+    <string name="chat_context_compression_attachment_only">本轮已压缩上下文，附件已按预算裁剪</string>
     <string name="chat_streaming_responding">正在回答中…</string>
     <string name="chat_streaming_done">回答完成</string>
     <string name="chat_expand">展开</string>

@@ -75,7 +75,7 @@ class ModelContextLimitResolver @Inject constructor(
         return list.data.firstOrNull { it.id == modelName }?.maxInputTokens
     }
 
-    private fun resolveStatic(apiType: String, modelName: String): Int? {
+    fun resolveStatic(apiType: String, modelName: String): Int? {
         val normalized = modelName.trim().lowercase()
         return when (apiType) {
             ModelConfig.API_TYPE_ANTHROPIC -> resolveAnthropicStatic(normalized)

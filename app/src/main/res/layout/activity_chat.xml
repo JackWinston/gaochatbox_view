@@ -10,8 +10,8 @@
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        app:navigationIcon="@drawable/ic_arrow_back"
-        app:menu="@menu/menu_chat" />
+        app:menu="@menu/menu_chat"
+        app:navigationIcon="@drawable/ic_arrow_back" />
 
     <TextView
         android:id="@+id/tv_system_prompt"
@@ -47,6 +47,32 @@
         android:text="@string/disclaimer_ai_content"
         android:textColor="?attr/colorOnSurfaceVariant"
         android:textSize="11sp" />
+
+    <FrameLayout
+        android:id="@+id/layout_context_usage"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurfaceContainerLow"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:id="@+id/progress_context"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="16dp"
+            android:max="100"
+            android:progress="0"
+            android:progressDrawable="@drawable/progress_context_usage" />
+
+        <TextView
+            android:id="@+id/tv_context_usage"
+            android:layout_width="match_parent"
+            android:layout_height="16dp"
+            android:gravity="center"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="10sp" />
+
+    </FrameLayout>
 
     <View
         android:layout_width="match_parent"
@@ -170,6 +196,16 @@
                 android:textSize="12sp" />
 
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_context_compression_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="12dp"
+            android:paddingBottom="4dp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textSize="12sp"
+            android:visibility="gone" />
 
         <LinearLayout
             android:layout_width="match_parent"

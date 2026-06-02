@@ -185,6 +185,10 @@ class SettingsViewModel(
         }
     }
 
+    fun resolveContextLimitStatic(apiType: String, modelName: String): Int? {
+        return modelContextLimitResolver.resolveStatic(apiType, modelName)
+    }
+
     class Factory @Inject constructor(
         private val modelConfigManager: ModelConfigManager,
         private val modelContextLimitResolver: ModelContextLimitResolver,
