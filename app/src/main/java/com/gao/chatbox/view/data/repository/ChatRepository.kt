@@ -1,11 +1,9 @@
 package com.gao.chatbox.view.data.repository
 
-import android.content.Context
 import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
 import com.gao.chatbox.view.data.model.ModelConfig
 import com.gao.chatbox.view.data.remote.AnthropicMessage
 import com.gao.chatbox.view.data.remote.AnthropicMessageRequest
-import com.gao.chatbox.view.data.remote.AnthropicMessageResponse
 import com.gao.chatbox.view.data.remote.OpenAiChatMessage
 import com.gao.chatbox.view.data.remote.OpenAiChatRequest
 import com.gao.chatbox.view.data.remote.SseParser
@@ -16,6 +14,8 @@ import com.gao.chatbox.view.data.remote.ToolDefinition
 import com.gao.chatbox.view.data.remote.ToolFunctionDefinition
 import com.gao.chatbox.view.util.ApiClient
 import kotlinx.coroutines.flow.Flow
+import javax.inject.Inject
+import javax.inject.Singleton
 
 data class StreamResult(
     val conversationId: Long,
@@ -30,20 +30,10 @@ data class MessageContext(
     val mediaType: String? = null
 )
 
-class ChatRepository(context: Context) {
-
-    private val dbManager = ChatDatabaseManager.getInstance(context)
-
-    companion object {
-        @Volatile
-        private var INSTANCE: ChatRepository? = null
-
-        fun getInstance(context: Context): ChatRepository {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: ChatRepository(context.applicationContext).also { INSTANCE = it }
-            }
-        }
-    }
+@Singleton
+class ChatRepository @Inject constructor(
+    private val dbManager: ChatDatabaseManager
+) {
 
     suspend fun sendMessage(
         conversationId: Long,

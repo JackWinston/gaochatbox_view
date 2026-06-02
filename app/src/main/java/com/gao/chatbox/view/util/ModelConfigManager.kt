@@ -4,13 +4,14 @@ import com.gao.chatbox.view.data.model.ModelConfig
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.tencent.mmkv.MMKV
+import javax.inject.Inject
+import javax.inject.Singleton
 
-object ModelConfigManager {
+@Singleton
+class ModelConfigManager @Inject constructor(
+    private val mmkv: MMKV
+) {
 
-    private const val KEY_MODELS = "model_configs"
-    private const val KEY_INITIALIZED = "models_initialized"
-
-    private val mmkv: MMKV by lazy { MMKV.defaultMMKV() }
     private val gson = Gson()
     private val listType = object : TypeToken<List<ModelConfig>>() {}.type
 
@@ -68,5 +69,10 @@ object ModelConfigManager {
 
     private fun saveList(list: List<ModelConfig>) {
         mmkv.encode(KEY_MODELS, gson.toJson(list))
+    }
+
+    companion object {
+        private const val KEY_MODELS = "model_configs"
+        private const val KEY_INITIALIZED = "models_initialized"
     }
 }

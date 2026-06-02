@@ -4,13 +4,14 @@ import com.gao.chatbox.view.data.model.SystemPrompt
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.tencent.mmkv.MMKV
+import javax.inject.Inject
+import javax.inject.Singleton
 
-object SystemPromptManager {
+@Singleton
+class SystemPromptManager @Inject constructor(
+    private val mmkv: MMKV
+) {
 
-    private const val KEY_PROMPTS = "system_prompts"
-    private const val KEY_INITIALIZED = "initialized"
-
-    private val mmkv: MMKV by lazy { MMKV.defaultMMKV() }
     private val gson = Gson()
     private val listType = object : TypeToken<List<SystemPrompt>>() {}.type
 
@@ -64,5 +65,10 @@ object SystemPromptManager {
 
     private fun saveList(list: List<SystemPrompt>) {
         mmkv.encode(KEY_PROMPTS, gson.toJson(list))
+    }
+
+    companion object {
+        private const val KEY_PROMPTS = "system_prompts"
+        private const val KEY_INITIALIZED = "initialized"
     }
 }

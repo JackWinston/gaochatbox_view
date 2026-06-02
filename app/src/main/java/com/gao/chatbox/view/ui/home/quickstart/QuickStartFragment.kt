@@ -5,22 +5,30 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.gao.chatbox.view.ChatBoxApp
 import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.model.SystemPrompt
 import com.gao.chatbox.view.databinding.DialogSystemPromptBinding
 import com.gao.chatbox.view.databinding.FragmentQuickStartBinding
 import com.gao.chatbox.view.ui.chat.ChatActivity
-import com.gao.chatbox.view.util.SystemPromptManager
 import com.google.android.flexbox.FlexDirection
 import com.google.android.flexbox.FlexboxLayoutManager
 import com.google.android.flexbox.JustifyContent
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.launch
 
 class QuickStartFragment : Fragment() {
 
     private var _binding: FragmentQuickStartBinding? = null
     private val binding get() = _binding!!
     private var adapter: SystemPromptAdapter? = null
+    private val viewModel: QuickStartViewModel by viewModels {
+        (requireActivity().application as ChatBoxApp).appComponent.quickStartViewModelFactory()
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -34,15 +42,14 @@ class QuickStartFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        SystemPromptManager.init()
-
         val layoutManager = FlexboxLayoutManager(requireContext()).apply {
             flexDirection = FlexDirection.ROW
             justifyContent = JustifyContent.CENTER
         }
         binding.rvPrompts.layoutManager = layoutManager
 
-        refreshList()
+        setupAdapter()
+        observePrompts()
     }
 
     override fun onDestroyView() {
@@ -50,26 +57,32 @@ class QuickStartFragment : Fragment() {
         _binding = null
     }
 
-    private fun refreshList() {
-        val prompts = SystemPromptManager.getAll()
-        if (adapter == null) {
-            adapter = SystemPromptAdapter(
-                onPromptClick = { prompt ->
-                    ChatActivity.start(requireContext(), prompt.content, prompt.tag)
-                },
-                onAddClick = {
-                    showAddDialog()
-                },
-                onEditPrompt = { prompt ->
-                    showEditDialog(prompt)
-                },
-                onDeletePrompt = { prompt ->
-                    showDeleteConfirm(prompt)
+    private fun setupAdapter() {
+        adapter = SystemPromptAdapter(
+            onPromptClick = { prompt ->
+                ChatActivity.start(requireContext(), prompt.content, prompt.tag)
+            },
+            onAddClick = {
+                showAddDialog()
+            },
+            onEditPrompt = { prompt ->
+                showEditDialog(prompt)
+            },
+            onDeletePrompt = { prompt ->
+                showDeleteConfirm(prompt)
+            }
+        )
+        binding.rvPrompts.adapter = adapter
+    }
+
+    private fun observePrompts() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.prompts.collect { prompts ->
+                    adapter?.submitList(SystemPromptAdapter.buildItems(prompts))
                 }
-            )
-            binding.rvPrompts.adapter = adapter
+            }
         }
-        adapter?.submitList(SystemPromptAdapter.buildItems(prompts))
     }
 
     private fun showAddDialog() {
@@ -82,10 +95,7 @@ class QuickStartFragment : Fragment() {
                 val tag = dialogBinding.etTag.text?.toString()?.trim() ?: ""
                 val content = dialogBinding.etContent.text?.toString()?.trim() ?: ""
                 if (tag.isNotEmpty() && content.isNotEmpty()) {
-                    SystemPromptManager.add(
-                        SystemPrompt(content = content, tag = tag)
-                    )
-                    refreshList()
+                    viewModel.addPrompt(SystemPrompt(content = content, tag = tag))
                 }
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -105,10 +115,7 @@ class QuickStartFragment : Fragment() {
                 val tag = dialogBinding.etTag.text?.toString()?.trim() ?: ""
                 val content = dialogBinding.etContent.text?.toString()?.trim() ?: ""
                 if (tag.isNotEmpty() && content.isNotEmpty()) {
-                    SystemPromptManager.update(
-                        prompt.copy(tag = tag, content = content)
-                    )
-                    refreshList()
+                    viewModel.updatePrompt(prompt.copy(tag = tag, content = content))
                 }
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -120,8 +127,7 @@ class QuickStartFragment : Fragment() {
             .setTitle(R.string.delete_confirm_title)
             .setMessage(R.string.delete_confirm_message)
             .setPositiveButton(R.string.dialog_confirm) { _, _ ->
-                SystemPromptManager.delete(prompt.id)
-                refreshList()
+                viewModel.deletePrompt(prompt.id)
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()

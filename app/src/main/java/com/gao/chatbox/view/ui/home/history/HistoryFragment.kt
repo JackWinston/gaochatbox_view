@@ -11,15 +11,16 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.gao.chatbox.view.ChatBoxApp
 import com.gao.chatbox.view.R
-import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
 import com.gao.chatbox.view.data.local.db.entity.ConversationWithLastMessage
 import com.gao.chatbox.view.databinding.FragmentHistoryBinding
 import com.gao.chatbox.view.ui.chat.ChatActivity
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class HistoryFragment : Fragment() {
@@ -27,11 +28,10 @@ class HistoryFragment : Fragment() {
     private var _binding: FragmentHistoryBinding? = null
     private val binding get() = _binding!!
 
-    private val dbManager by lazy { ChatDatabaseManager.getInstance(requireContext()) }
     private var adapter: ConversationAdapter? = null
-    private var dataJob: Job? = null
-    private var currentFilter: String? = null
-    private var currentKeyword: String = ""
+    private val viewModel: HistoryViewModel by viewModels {
+        (requireActivity().application as ChatBoxApp).appComponent.historyViewModelFactory()
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -48,12 +48,11 @@ class HistoryFragment : Fragment() {
         setupToolbar()
         setupSearch()
         setupRecyclerView()
-        loadData()
+        observeData()
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
-        dataJob?.cancel()
         _binding = null
     }
 
@@ -74,8 +73,7 @@ class HistoryFragment : Fragment() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                currentKeyword = s?.toString()?.trim() ?: ""
-                loadData()
+                viewModel.setKeyword(s?.toString()?.trim() ?: "")
             }
         })
 
@@ -99,41 +97,31 @@ class HistoryFragment : Fragment() {
         }
     }
 
-    private fun loadData() {
-        dataJob?.cancel()
-        dataJob = viewLifecycleOwner.lifecycleScope.launch {
-            val flow = when {
-                currentKeyword.isNotEmpty() && currentFilter != null -> {
-                    dbManager.searchConversationsWithLastMessage(currentKeyword)
+    private fun observeData() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    viewModel.conversations.collect { list ->
+                        val filter = viewModel.filter.value
+                        val filtered = if (filter != null) {
+                            list.filter { it.conversation.displayTag == filter }
+                        } else {
+                            list
+                        }
+                        adapter?.submitList(filtered)
+                        binding.tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+                    }
                 }
-                currentFilter != null -> {
-                    dbManager.getConversationsByTagWithLastMessage(currentFilter!!)
-                }
-                currentKeyword.isNotEmpty() -> {
-                    dbManager.searchConversationsWithLastMessage(currentKeyword)
-                }
-                else -> {
-                    dbManager.getAllConversationsWithLastMessage()
-                }
-            }
-
-            flow.collectLatest { list ->
-                val filtered = if (currentKeyword.isNotEmpty() && currentFilter != null) {
-                    list.filter { it.conversation.displayTag == currentFilter }
-                } else {
-                    list
-                }
-                adapter?.submitList(filtered)
-                binding.tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
             }
         }
     }
 
     private fun showFilterDialog() {
         viewLifecycleOwner.lifecycleScope.launch {
-            dbManager.getDistinctTags().collectLatest { tags ->
-                if (!isAdded) return@collectLatest
+            viewModel.tags.collect { tags ->
+                if (!isAdded) return@collect
 
+                val currentFilter = viewModel.filter.value
                 val items = mutableListOf(getString(R.string.filter_all))
                 items.addAll(tags)
 
@@ -146,27 +134,26 @@ class HistoryFragment : Fragment() {
                 AlertDialog.Builder(requireContext())
                     .setTitle(R.string.filter_by_tag)
                     .setSingleChoiceItems(items.toTypedArray(), checkedIndex) { dialog, which ->
-                        currentFilter = if (which == 0) null else items[which]
-                        updateFilterLabel()
-                        loadData()
+                        val newFilter = if (which == 0) null else items[which]
+                        viewModel.setFilter(newFilter)
+                        updateFilterLabel(newFilter)
                         dialog.dismiss()
                     }
                     .setNegativeButton(R.string.dialog_cancel, null)
                     .show()
 
-                return@collectLatest
+                return@collect
             }
         }
     }
 
-    private fun updateFilterLabel() {
-        if (currentFilter != null) {
-            binding.tvActiveFilter.text = "筛选: $currentFilter"
+    private fun updateFilterLabel(filter: String?) {
+        if (filter != null) {
+            binding.tvActiveFilter.text = "筛选: $filter"
             binding.tvActiveFilter.visibility = View.VISIBLE
             binding.tvActiveFilter.setOnClickListener {
-                currentFilter = null
-                updateFilterLabel()
-                loadData()
+                viewModel.setFilter(null)
+                updateFilterLabel(null)
             }
         } else {
             binding.tvActiveFilter.visibility = View.GONE
@@ -189,10 +176,8 @@ class HistoryFragment : Fragment() {
             .setTitle(R.string.delete_conversation_title)
             .setMessage(R.string.delete_conversation_message)
             .setPositiveButton(R.string.dialog_confirm) { _, _ ->
-                viewLifecycleOwner.lifecycleScope.launch {
-                    dbManager.deleteConversation(item.conversation.id)
-                    Toast.makeText(requireContext(), R.string.msg_conversation_deleted, Toast.LENGTH_SHORT).show()
-                }
+                viewModel.deleteConversation(item.conversation.id)
+                Toast.makeText(requireContext(), R.string.msg_conversation_deleted, Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()

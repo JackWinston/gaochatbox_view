@@ -7,36 +7,28 @@ import android.view.ViewGroup
 import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.gao.chatbox.view.ChatBoxApp
 import com.gao.chatbox.view.R
 import com.gao.chatbox.view.data.model.ModelConfig
 import com.gao.chatbox.view.data.model.ModelConfig.Companion.API_TYPE_ANTHROPIC
 import com.gao.chatbox.view.data.model.ModelConfig.Companion.API_TYPE_OPENAI
 import com.gao.chatbox.view.databinding.DialogModelConfigBinding
 import com.gao.chatbox.view.databinding.FragmentSettingsBinding
-import com.gao.chatbox.view.util.ApiClient
-import com.gao.chatbox.view.util.ModelConfigManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.tencent.mmkv.MMKV
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class SettingsFragment : Fragment() {
 
     private var _binding: FragmentSettingsBinding? = null
     private val binding get() = _binding!!
     private var adapter: SettingsAdapter? = null
-
-    private val mmkv: MMKV by lazy { MMKV.defaultMMKV() }
-
-    companion object {
-        private const val KEY_SHOW_CHAR_COUNT = "ui_show_char_count"
-        private const val KEY_SHOW_TOKEN_COUNT = "ui_show_token_count"
-        private const val KEY_SHOW_MODEL_NAME = "ui_show_model_name"
-        private const val KEY_SHOW_TIMESTAMP = "ui_show_timestamp"
-        private const val KEY_WEB_SEARCH = "capability_web_search"
+    private val viewModel: SettingsViewModel by viewModels {
+        (requireActivity().application as ChatBoxApp).appComponent.settingsViewModelFactory()
     }
 
     override fun onCreateView(
@@ -51,10 +43,10 @@ class SettingsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        ModelConfigManager.init()
         binding.rvSettings.layoutManager = LinearLayoutManager(requireContext())
 
         setupAdapter()
+        observeData()
     }
 
     override fun onDestroyView() {
@@ -68,36 +60,40 @@ class SettingsFragment : Fragment() {
             onModelLongClick = { view, config -> showModelPopupMenu(view, config) },
             onAddModelClick = { showModelDialog(null) },
             onUiSwitchChanged = { setting, checked ->
-                val key = when (setting) {
-                    SettingsAdapter.UiSetting.CHAR_COUNT -> KEY_SHOW_CHAR_COUNT
-                    SettingsAdapter.UiSetting.TOKEN_COUNT -> KEY_SHOW_TOKEN_COUNT
-                    SettingsAdapter.UiSetting.MODEL_NAME -> KEY_SHOW_MODEL_NAME
-                    SettingsAdapter.UiSetting.TIMESTAMP -> KEY_SHOW_TIMESTAMP
-                }
-                mmkv.encode(key, checked)
+                viewModel.updateUiSetting(setting, checked)
             },
             onCapabilitySwitchChanged = { setting, checked ->
-                when (setting) {
-                    SettingsAdapter.CapabilitySetting.WEB_SEARCH -> mmkv.encode(KEY_WEB_SEARCH, checked)
-                }
+                viewModel.updateCapabilitySetting(setting, checked)
             }
         )
-
-        adapter?.apply {
-            showCharCount = mmkv.decodeBool(KEY_SHOW_CHAR_COUNT, false)
-            showTokenCount = mmkv.decodeBool(KEY_SHOW_TOKEN_COUNT, false)
-            showModelName = mmkv.decodeBool(KEY_SHOW_MODEL_NAME, false)
-            showTimestamp = mmkv.decodeBool(KEY_SHOW_TIMESTAMP, false)
-            webSearchEnabled = mmkv.decodeBool(KEY_WEB_SEARCH, false)
-        }
-
         binding.rvSettings.adapter = adapter
-        refreshModels()
     }
 
-    private fun refreshModels() {
-        val models = ModelConfigManager.getAll()
-        adapter?.setModels(models)
+    private fun observeData() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    viewModel.models.collect { models ->
+                        adapter?.setModels(models)
+                    }
+                }
+                launch {
+                    viewModel.showCharCount.collect { adapter?.showCharCount = it }
+                }
+                launch {
+                    viewModel.showTokenCount.collect { adapter?.showTokenCount = it }
+                }
+                launch {
+                    viewModel.showModelName.collect { adapter?.showModelName = it }
+                }
+                launch {
+                    viewModel.showTimestamp.collect { adapter?.showTimestamp = it }
+                }
+                launch {
+                    viewModel.webSearchEnabled.collect { adapter?.webSearchEnabled = it }
+                }
+            }
+        }
     }
 
     private fun showModelPopupMenu(anchorView: View, config: ModelConfig) {
@@ -124,8 +120,7 @@ class SettingsFragment : Fragment() {
             .setTitle(R.string.delete_confirm_title)
             .setMessage(R.string.delete_model_confirm_message)
             .setPositiveButton(R.string.dialog_confirm) { _, _ ->
-                ModelConfigManager.delete(config.id)
-                refreshModels()
+                viewModel.deleteModel(config.id)
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()
@@ -134,7 +129,6 @@ class SettingsFragment : Fragment() {
     private fun showModelDialog(existing: ModelConfig?) {
         val dialogBinding = DialogModelConfigBinding.inflate(layoutInflater)
 
-        // 状态变量
         var fetchedModels = mutableListOf<String>()
         var selectedApiType = existing?.apiType ?: API_TYPE_OPENAI
         var selectedDefaultModel = existing?.defaultModel ?: ""
@@ -153,7 +147,6 @@ class SettingsFragment : Fragment() {
                 dialogBinding.btnFetchModels.visibility = View.VISIBLE
                 dialogBinding.progressFetch.visibility = View.GONE
                 dialogBinding.tilAnthropicModel.visibility = View.GONE
-                // OpenAI: 0~2.0, step 0.1
                 dialogBinding.sliderTemperature.valueTo = 200f
                 dialogBinding.sliderTemperature.stepSize = 10f
             } else {
@@ -161,15 +154,12 @@ class SettingsFragment : Fragment() {
                 dialogBinding.btnFetchModels.visibility = View.GONE
                 dialogBinding.progressFetch.visibility = View.GONE
                 dialogBinding.tilAnthropicModel.visibility = View.VISIBLE
-                // Anthropic: 0~1.0, step 0.05
                 dialogBinding.sliderTemperature.valueTo = 100f
                 dialogBinding.sliderTemperature.stepSize = 5f
             }
-            // 确保当前值不超过新的上限
             dialogBinding.sliderTemperature.value = dialogBinding.sliderTemperature.value.coerceIn(0f, dialogBinding.sliderTemperature.valueTo)
         }
 
-        // API 类型选择（弹窗）
         dialogBinding.etApiType.setOnClickListener {
             val currentIndex = apiTypeValues.indexOf(selectedApiType).coerceAtLeast(0)
             MaterialAlertDialogBuilder(requireContext())
@@ -185,7 +175,6 @@ class SettingsFragment : Fragment() {
                 .show()
         }
 
-        // 默认模型选择（弹窗，仅 OpenAI）
         dialogBinding.etDefaultModel.setOnClickListener {
             if (fetchedModels.isEmpty()) {
                 Toast.makeText(requireContext(), R.string.msg_fetch_first, Toast.LENGTH_SHORT).show()
@@ -202,7 +191,6 @@ class SettingsFragment : Fragment() {
                 .show()
         }
 
-        // 预填充已有数据
         if (existing != null) {
             dialogBinding.etName.setText(existing.tag)
             dialogBinding.etApiUrl.setText(existing.apiUrl)
@@ -210,7 +198,6 @@ class SettingsFragment : Fragment() {
             dialogBinding.etContextLimit.setText(existing.contextLimit.toString())
             dialogBinding.switchDefault.isChecked = existing.isDefault
 
-            // 先设置 API 类型（会调整滑块范围），再设置温度值
             updateUiForApiType(existing.apiType)
             dialogBinding.sliderTemperature.value = (existing.temperature * 100).coerceIn(0f, dialogBinding.sliderTemperature.valueTo)
             dialogBinding.tvTemperatureLabel.text = getString(R.string.label_temperature, existing.temperature)
@@ -231,13 +218,11 @@ class SettingsFragment : Fragment() {
             updateUiForApiType(API_TYPE_OPENAI)
         }
 
-        // 温度滑块
         dialogBinding.sliderTemperature.addOnChangeListener { _, value, _ ->
             val temp = value / 100f
             dialogBinding.tvTemperatureLabel.text = getString(R.string.label_temperature, temp)
         }
 
-        // 获取模型按钮（仅 OpenAI）
         dialogBinding.btnFetchModels.setOnClickListener {
             val apiUrl = dialogBinding.etApiUrl.text?.toString()?.trim() ?: ""
             val apiKey = dialogBinding.etApiKey.text?.toString()?.trim() ?: ""
@@ -251,10 +236,7 @@ class SettingsFragment : Fragment() {
 
             viewLifecycleOwner.lifecycleScope.launch {
                 try {
-                    val response = withContext(Dispatchers.IO) {
-                        ApiClient.fetchModels(apiUrl, apiKey)
-                    }
-                    val modelIds = response.data.map { it.id }.sorted()
+                    val modelIds = viewModel.fetchModels(apiUrl, apiKey)
                     fetchedModels.clear()
                     fetchedModels.addAll(modelIds)
 
@@ -318,11 +300,10 @@ class SettingsFragment : Fragment() {
                 )
 
                 if (existing != null) {
-                    ModelConfigManager.update(config)
+                    viewModel.updateModel(config)
                 } else {
-                    ModelConfigManager.add(config)
+                    viewModel.addModel(config)
                 }
-                refreshModels()
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()

@@ -1,32 +1,19 @@
 package com.gao.chatbox.view.data.local.db
 
-import android.content.Context
+import com.gao.chatbox.view.data.local.db.dao.ConversationDao
+import com.gao.chatbox.view.data.local.db.dao.MessageDao
 import com.gao.chatbox.view.data.local.db.entity.ConversationEntity
 import com.gao.chatbox.view.data.local.db.entity.ConversationWithLastMessage
 import com.gao.chatbox.view.data.local.db.entity.MessageEntity
 import kotlinx.coroutines.flow.Flow
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class ChatDatabaseManager(context: Context) {
-
-    private val db = AppDatabase.getInstance(context)
-    private val conversationDao = db.conversationDao()
-    private val messageDao = db.messageDao()
-
-    companion object {
-        const val ROLE_USER = "user"
-        const val ROLE_ASSISTANT = "assistant"
-        const val ROLE_SYSTEM = "system"
-        const val ROLE_TOOL = "tool"
-
-        @Volatile
-        private var INSTANCE: ChatDatabaseManager? = null
-
-        fun getInstance(context: Context): ChatDatabaseManager {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: ChatDatabaseManager(context.applicationContext).also { INSTANCE = it }
-            }
-        }
-    }
+@Singleton
+class ChatDatabaseManager @Inject constructor(
+    private val conversationDao: ConversationDao,
+    private val messageDao: MessageDao
+) {
 
     // ==================== Conversation ====================
 
@@ -168,5 +155,12 @@ class ChatDatabaseManager(context: Context) {
         val id = messageDao.insert(message)
         conversationDao.updateTimestamp(conversationId)
         return id
+    }
+
+    companion object {
+        const val ROLE_USER = "user"
+        const val ROLE_ASSISTANT = "assistant"
+        const val ROLE_SYSTEM = "system"
+        const val ROLE_TOOL = "tool"
     }
 }
