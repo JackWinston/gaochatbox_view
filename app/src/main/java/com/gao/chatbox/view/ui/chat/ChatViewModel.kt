@@ -63,6 +63,9 @@ class ChatViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage
 
+    private val _hasPendingAttachment = MutableStateFlow(false)
+    val hasPendingAttachment: StateFlow<Boolean> = _hasPendingAttachment
+
     // UI Settings
     private val _showCharCount = MutableStateFlow(false)
     val showCharCount: StateFlow<Boolean> = _showCharCount
@@ -87,13 +90,23 @@ class ChatViewModel(
     private var lastUIUpdateTime: Long = 0L
     private var thinkingStartTime: Long = 0L
     private var titleGenerated: Boolean = false
+    private var hasCustomTitle: Boolean = false
     private val pendingToolCalls = mutableMapOf<Int, ToolCallBuilder>()
     private var toolCallRoundCount = 0
+    private var pendingAttachment: PendingAttachment? = null
 
     private data class ToolCallBuilder(
         var id: String = "",
         var name: String = "",
         val arguments: StringBuilder = StringBuilder()
+    )
+
+    private data class PendingAttachment(
+        val displayName: String,
+        val imageUri: String? = null,
+        val imageBase64: String? = null,
+        val mediaType: String? = null,
+        val fileContent: String? = null
     )
 
     fun initConversation(
@@ -182,7 +195,10 @@ class ChatViewModel(
                         items.add(
                             ChatItem.UserMessage(
                                 id = "msg_${msg.id}",
-                                content = msg.content
+                                content = msg.displayContent ?: msg.content,
+                                requestContent = msg.content,
+                                attachmentName = msg.attachmentName,
+                                imageUri = msg.imageUri
                             )
                         )
                     }
@@ -245,6 +261,8 @@ class ChatViewModel(
 
     fun sendMessage(text: String) {
         if (_isStreaming.value) return
+        val attachment = pendingAttachment
+        if (text.isBlank() && attachment == null) return
 
         viewModelScope.launch {
             val config = modelConfigManager.getDefault()
@@ -255,6 +273,8 @@ class ChatViewModel(
 
             val items = _chatItems.value.toMutableList()
             val now = System.currentTimeMillis()
+            val displayText = buildDisplayMessageText(text, attachment)
+            val requestText = buildRequestMessageText(text, attachment)
 
             // Insert timestamp if needed
             val timestamp = ChatItemBuilder.buildTimestampIfNeeded(items, now)
@@ -266,12 +286,16 @@ class ChatViewModel(
             items.add(
                 ChatItem.UserMessage(
                     id = "msg_$now",
-                    content = text
+                    content = displayText,
+                    requestContent = requestText,
+                    attachmentName = attachment?.displayName,
+                    imageUri = attachment?.imageUri
                 )
             )
             thinkingStartTime = System.currentTimeMillis()
             items.add(ChatItem.StreamingMessage(id = "streaming_$now", isThinking = true, thinkingStartTime = thinkingStartTime))
             _chatItems.value = items
+            clearPendingAttachment()
 
             // Build message history
             val userMessages = items.filterIsInstance<ChatItem.UserMessage>()
@@ -279,7 +303,7 @@ class ChatViewModel(
             val history = mutableListOf<MessageContext>()
             val pairs = minOf(userMessages.size, assistantMessages.size)
             for (i in 0 until pairs) {
-                history.add(MessageContext("user", userMessages[i].content))
+                history.add(MessageContext("user", userMessages[i].requestContent))
                 history.add(MessageContext("assistant", assistantMessages[i].content))
             }
 
@@ -292,11 +316,18 @@ class ChatViewModel(
                 pendingToolCalls.clear()
                 val result = chatRepository.sendMessage(
                     conversationId = conversationId,
-                    userMessage = text,
+                    userMessage = requestText,
+                    displayMessage = displayText,
+                    attachmentName = attachment?.displayName,
+                    imageUri = attachment?.imageUri,
                     history = history,
                     config = config,
                     systemPromptTag = systemPromptTag.ifBlank { null },
                     systemPrompt = systemPromptContent.ifBlank { null },
+                    conversationTitle = pendingConversationTitle(),
+                    displayTag = pendingDisplayTag(),
+                    imageBase64 = attachment?.imageBase64,
+                    mediaType = attachment?.mediaType,
                     enableWebSearch = _webSearchEnabled.value
                 )
                 conversationId = result.conversationId
@@ -621,18 +652,81 @@ class ChatViewModel(
     fun updateTitle(newTitle: String) {
         systemPromptTag = newTitle
         _title.value = newTitle
+        titleGenerated = true
+        hasCustomTitle = true
         viewModelScope.launch {
-            chatRepository.updateConversationTitle(conversationId, newTitle, newTitle)
+            if (conversationId > 0L) {
+                chatRepository.updateConversationTitle(conversationId, newTitle, newTitle)
+            }
         }
     }
 
     fun deleteConversation() {
-        // Just finish the activity - deletion is handled externally
+        if (conversationId <= 0L) return
+        viewModelScope.launch {
+            dbManager.deleteConversation(conversationId)
+        }
     }
 
     suspend fun getModelConfigs(): List<ModelConfig> = modelConfigManager.getAll()
 
+    fun attachImage(
+        displayName: String,
+        imageUri: String,
+        imageBase64: String,
+        mediaType: String?
+    ) {
+        pendingAttachment = PendingAttachment(
+            displayName = displayName,
+            imageUri = imageUri,
+            imageBase64 = imageBase64,
+            mediaType = mediaType
+        )
+        _hasPendingAttachment.value = true
+    }
+
+    fun attachTextFile(displayName: String, fileContent: String) {
+        pendingAttachment = PendingAttachment(
+            displayName = displayName,
+            fileContent = fileContent
+        )
+        _hasPendingAttachment.value = true
+    }
+
+    fun clearPendingAttachment() {
+        pendingAttachment = null
+        _hasPendingAttachment.value = false
+    }
+
     // endregion
+
+    private fun buildDisplayMessageText(text: String, attachment: PendingAttachment?): String {
+        if (!text.isBlank()) return text
+        return if (attachment != null) "请查看附件内容。"
+        else text
+    }
+
+    private fun buildRequestMessageText(text: String, attachment: PendingAttachment?): String {
+        if (attachment?.fileContent != null) {
+            val prompt = text.ifBlank { "请结合附件文件内容进行处理。" }
+            return buildString {
+                append(prompt)
+                append("\n\n[附件文件: ")
+                append(attachment.displayName)
+                append("]\n")
+                append(attachment.fileContent)
+            }
+        }
+        return if (!text.isBlank()) text else "请查看附件内容。"
+    }
+
+    private fun pendingConversationTitle(): String? {
+        return if (conversationId == 0L && hasCustomTitle) _title.value.takeIf { it.isNotBlank() } else null
+    }
+
+    private fun pendingDisplayTag(): String? {
+        return if (conversationId == 0L) _title.value.takeIf { it.isNotBlank() } else null
+    }
 
     class Factory @Inject constructor(
         private val chatRepository: ChatRepository,

@@ -38,26 +38,38 @@ class ChatRepository @Inject constructor(
     suspend fun sendMessage(
         conversationId: Long,
         userMessage: String,
+        displayMessage: String? = null,
+        attachmentName: String? = null,
+        imageUri: String? = null,
         history: List<MessageContext>,
         config: ModelConfig,
         systemPromptTag: String?,
         systemPrompt: String?,
+        conversationTitle: String? = null,
+        displayTag: String? = null,
         imageBase64: String? = null,
         mediaType: String? = null,
         enableWebSearch: Boolean = false
     ): StreamResult {
         val convId = if (conversationId == 0L) {
             dbManager.createConversation(
-                title = userMessage.take(50),
+                title = conversationTitle?.takeIf { it.isNotBlank() } ?: userMessage.take(50),
                 modelId = 0L,
                 systemPromptTag = systemPromptTag,
-                systemPrompt = systemPrompt
+                systemPrompt = systemPrompt,
+                displayTag = displayTag
             )
         } else {
             conversationId
         }
 
-        dbManager.addUserMessage(convId, userMessage)
+        dbManager.addUserMessage(
+            conversationId = convId,
+            content = userMessage,
+            displayContent = displayMessage,
+            attachmentName = attachmentName,
+            imageUri = imageUri
+        )
 
         val model = config.defaultModel.ifEmpty { config.models.firstOrNull() ?: "" }
 

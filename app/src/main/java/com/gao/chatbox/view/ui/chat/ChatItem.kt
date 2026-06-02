@@ -20,6 +20,7 @@ sealed class ChatItem {
     data class UserMessage(
         override val id: String,
         val content: String,
+        val requestContent: String = content,
         val attachmentName: String? = null,
         val imageUri: String? = null
     ) : ChatItem()

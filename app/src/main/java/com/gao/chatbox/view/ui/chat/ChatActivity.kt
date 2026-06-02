@@ -4,8 +4,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.database.Cursor
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.view.inputmethod.InputMethodManager
 import android.widget.ExpandableListAdapter
 import android.widget.ExpandableListView
@@ -29,7 +32,9 @@ import io.noties.markwon.core.CorePlugin
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.linkify.LinkifyPlugin
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
@@ -73,12 +78,12 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     private var dialog: AlertDialog? = null
 
     private val imagePickerLauncher =
-        registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             uri?.let { onImagePicked(it) }
         }
 
     private val filePickerLauncher =
-        registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             uri?.let { onFilePicked(it) }
         }
 
@@ -126,8 +131,8 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
         // Bottom toolbar actions
         binding.btnNewChat.setOnClickListener { onNewChat() }
-        binding.btnSelectImage.setOnClickListener { imagePickerLauncher.launch("image/*") }
-        binding.btnSelectFile.setOnClickListener { filePickerLauncher.launch("*/*") }
+        binding.btnSelectImage.setOnClickListener { imagePickerLauncher.launch(arrayOf("image/*")) }
+        binding.btnSelectFile.setOnClickListener { filePickerLauncher.launch(arrayOf("*/*")) }
         binding.btnSelectModel.setOnClickListener { showModelSelectorDialog() }
         binding.btnWebSearch.setOnClickListener { viewModel.toggleWebSearch() }
         binding.btnSend.setOnClickListener { onSend() }
@@ -242,7 +247,7 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     private fun onSend() {
         val text = binding.etInput.text?.toString()?.trim() ?: return
-        if (text.isEmpty() || viewModel.isStreaming.value) return
+        if ((text.isEmpty() && !viewModel.hasPendingAttachment.value) || viewModel.isStreaming.value) return
 
         binding.etInput.text?.clear()
 
@@ -297,7 +302,9 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
 
     private fun onImagePicked(uri: Uri) {
         try {
-            val bitmap = android.provider.MediaStore.Images.Media.getBitmap(contentResolver, uri)
+            persistReadPermission(uri)
+            val bitmap = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                ?: throw IllegalArgumentException("无法解码图片")
             val maxDim = 1024
             val scale = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height, 1f)
             val scaledBitmap = if (scale < 1f) {
@@ -315,18 +322,48 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                 outputStream.toByteArray(),
                 android.util.Base64.NO_WRAP
             )
+            val mediaType = contentResolver.getType(uri) ?: "image/jpeg"
+            val displayName = queryDisplayName(uri) ?: "image.jpg"
 
             if (scaledBitmap !== bitmap) scaledBitmap.recycle()
             bitmap.recycle()
 
-            Toast.makeText(this, "图片已选择", Toast.LENGTH_SHORT).show()
+            viewModel.attachImage(
+                displayName = displayName,
+                imageUri = uri.toString(),
+                imageBase64 = imageBase64,
+                mediaType = mediaType
+            )
+            Toast.makeText(this, "图片已加入下一条消息", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(this, "图片读取失败: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun onFilePicked(uri: Uri) {
-        Toast.makeText(this, "文件已选择: $uri", Toast.LENGTH_SHORT).show()
+        val mimeType = contentResolver.getType(uri).orEmpty()
+        if (!mimeType.startsWith("text/")) {
+            Toast.makeText(this, "目前仅支持文本文件作为附件发送", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        lifecycleScope.launch {
+            try {
+                persistReadPermission(uri)
+                val content = withContext(Dispatchers.IO) {
+                    contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                }
+                if (content.isNullOrBlank()) {
+                    Toast.makeText(this@ChatActivity, "文件内容为空或无法读取", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                val displayName = queryDisplayName(uri) ?: (uri.lastPathSegment ?: "attachment.txt")
+                viewModel.attachTextFile(displayName, content)
+                Toast.makeText(this@ChatActivity, "文件已加入下一条消息", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this@ChatActivity, "文件读取失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     // endregion
@@ -452,10 +489,36 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         AlertDialog.Builder(this)
             .setTitle(R.string.delete_conversation_confirm_title)
             .setMessage(R.string.delete_conversation_confirm_message)
-            .setPositiveButton(R.string.dialog_confirm) { _, _ -> finish() }
+            .setPositiveButton(R.string.dialog_confirm) { _, _ ->
+                viewModel.deleteConversation()
+                Toast.makeText(this, R.string.msg_conversation_deleted, Toast.LENGTH_SHORT).show()
+                finish()
+            }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()
     }
 
     // endregion
+
+    private fun queryDisplayName(uri: Uri): String? {
+        val cursor: Cursor? = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        return cursor?.use {
+            if (it.moveToFirst()) {
+                it.getString(it.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+            } else {
+                null
+            }
+        }
+    }
+
+    private fun persistReadPermission(uri: Uri) {
+        try {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (_: SecurityException) {
+            // Some document providers do not offer persistable permissions.
+        }
+    }
 }

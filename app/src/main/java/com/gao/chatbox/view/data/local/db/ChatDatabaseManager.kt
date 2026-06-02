@@ -40,7 +40,8 @@ class ChatDatabaseManager @Inject constructor(
         modelId: Long,
         characterId: Long? = null,
         systemPromptTag: String? = null,
-        systemPrompt: String? = null
+        systemPrompt: String? = null,
+        displayTag: String? = null
     ): Long {
         val conversation = ConversationEntity(
             title = title,
@@ -48,7 +49,7 @@ class ChatDatabaseManager @Inject constructor(
             characterId = characterId,
             systemPromptTag = systemPromptTag,
             systemPrompt = systemPrompt,
-            displayTag = systemPromptTag
+            displayTag = displayTag ?: systemPromptTag
         )
         return conversationDao.insert(conversation)
     }
@@ -69,11 +70,21 @@ class ChatDatabaseManager @Inject constructor(
     fun getRecentMessages(conversationId: Long, limit: Int = 20): Flow<List<MessageEntity>> =
         messageDao.getRecent(conversationId, limit)
 
-    suspend fun addUserMessage(conversationId: Long, content: String, tokenCount: Int = 0): Long {
+    suspend fun addUserMessage(
+        conversationId: Long,
+        content: String,
+        displayContent: String? = null,
+        attachmentName: String? = null,
+        imageUri: String? = null,
+        tokenCount: Int = 0
+    ): Long {
         val message = MessageEntity(
             conversationId = conversationId,
             role = ROLE_USER,
             content = content,
+            displayContent = displayContent,
+            attachmentName = attachmentName,
+            imageUri = imageUri,
             tokenCount = tokenCount
         )
         val id = messageDao.insert(message)
