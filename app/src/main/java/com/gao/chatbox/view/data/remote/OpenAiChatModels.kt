@@ -8,7 +8,8 @@ data class OpenAiChatRequest(
     @SerializedName("temperature") val temperature: Float = 0.7f,
     @SerializedName("stream") val stream: Boolean = true,
     @SerializedName("stream_options") val streamOptions: Map<String, Any>? = null,
-    @SerializedName("tools") val tools: List<ToolDefinition>? = null
+    @SerializedName("tools") val tools: List<ToolDefinition>? = null,
+    @SerializedName("tool_choice") val toolChoice: String? = null
 )
 
 data class OpenAiChatMessage(

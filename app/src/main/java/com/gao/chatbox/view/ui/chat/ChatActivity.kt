@@ -169,7 +169,12 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                 }
                 launch {
                     viewModel.isStreaming.collect { streaming ->
-                        // UI can react to streaming state if needed
+                        updateSendingState(streaming)
+                    }
+                }
+                launch {
+                    viewModel.pendingResponsePhase.collect { phase ->
+                        updatePendingStatus(phase)
                     }
                 }
                 launch {
@@ -227,6 +232,27 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         )
         if (chatAdapter.itemCount > 0) {
             chatAdapter.notifyDataSetChanged()
+        }
+    }
+
+    private fun updateSendingState(streaming: Boolean) {
+        binding.btnSend.isEnabled = !streaming
+        binding.btnSend.alpha = if (streaming) 0.38f else 1f
+    }
+
+    private fun updatePendingStatus(phase: ChatViewModel.PendingResponsePhase) {
+        val textRes = when (phase) {
+            ChatViewModel.PendingResponsePhase.IDLE -> null
+            ChatViewModel.PendingResponsePhase.THINKING -> R.string.chat_thinking
+            ChatViewModel.PendingResponsePhase.EXECUTING_TOOLS -> R.string.chat_executing_tools
+        }
+
+        if (textRes == null) {
+            binding.layoutPendingStatus.visibility = android.view.View.GONE
+            binding.tvPendingStatus.text = ""
+        } else {
+            binding.layoutPendingStatus.visibility = android.view.View.VISIBLE
+            binding.tvPendingStatus.setText(textRes)
         }
     }
 

@@ -1,6 +1,5 @@
 package com.gao.chatbox.view.data.remote
 
-import android.util.Log
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -27,8 +26,6 @@ data class TokenUsage(
 
 object SseParser {
 
-    private const val TAG = "SseParser"
-
     fun parseOpenAiStream(body: ResponseBody): Flow<StreamEvent> = flow {
         val gson = Gson()
         val reader = body.charStream().buffered()
@@ -46,19 +43,11 @@ object SseParser {
                         val chunk = gson.fromJson(data, OpenAiStreamChunk::class.java)
                         val choice = chunk.choices.firstOrNull()
                         val content = choice?.delta?.content
-                        Log.d(
-                            TAG,
-                            "openai chunk, finishReason=${choice?.finishReason}, contentLength=${content?.length ?: 0}, toolCallCount=${choice?.delta?.toolCalls?.size ?: 0}"
-                        )
                         if (!content.isNullOrEmpty()) {
                             emit(StreamEvent.ContentDelta(content))
                         }
                         // Handle tool_calls in delta
                         choice?.delta?.toolCalls?.forEach { toolCall ->
-                            Log.d(
-                                TAG,
-                                "openai tool delta, index=${toolCall.index}, id=${toolCall.id}, function=${toolCall.function?.name}, argumentsLength=${toolCall.function?.arguments?.length ?: 0}"
-                            )
                             emit(StreamEvent.ToolCallDelta(
                                 index = toolCall.index,
                                 id = toolCall.id,
@@ -72,7 +61,6 @@ object SseParser {
                         // Emit StreamEnd with finish_reason if it's tool_calls
                         val finishReason = choice?.finishReason
                         if (finishReason != null && finishReason != "stop") {
-                            Log.d(TAG, "openai stream end by finishReason=$finishReason")
                             emit(StreamEvent.StreamEnd(lastUsage, finishReason))
                             break
                         }
@@ -82,7 +70,6 @@ object SseParser {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "openai stream parse error", e)
             emit(StreamEvent.Error("Stream error: ${e.message}", e))
         } finally {
             reader.close()

@@ -9,6 +9,7 @@ import java.util.regex.Pattern
 object WebSearchTool {
 
     private const val TAG = "WebSearchTool"
+    private const val MAX_DIRECT_CONTENT_LENGTH = 6000
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -20,33 +21,47 @@ object WebSearchTool {
             .build()
     }
 
-    fun execute(query: String): String {
+    fun execute(input: String): String {
+        val normalizedInput = input.trim()
         val startTime = System.currentTimeMillis()
-        Log.d(TAG, "execute start, queryLength=${query.length}, query=${query.take(120)}")
+        Log.d(TAG, "execute start, inputLength=${normalizedInput.length}, input=${normalizedInput.take(120)}")
         return try {
-            val results = search(query)
-            Log.d(
-                TAG,
-                "execute success, resultCount=${results.size}, elapsedMs=${System.currentTimeMillis() - startTime}"
-            )
-            if (results.isEmpty()) {
-                "未找到与\"$query\"相关的搜索结果"
+            if (normalizedInput.isBlank()) {
+                return "搜索关键词或 URL 为空"
+            }
+            if (looksLikeUrl(normalizedInput)) {
+                val url = normalizeUrl(normalizedInput)
+                val content = fetchUrl(url)
+                Log.d(
+                    TAG,
+                    "execute direct fetch success, elapsedMs=${System.currentTimeMillis() - startTime}, url=$url"
+                )
+                content
             } else {
-                buildString {
-                    appendLine("以下是\"$query\"的搜索结果：")
-                    appendLine()
-                    results.forEachIndexed { index, result ->
-                        appendLine("${index + 1}. ${result.title}")
-                        appendLine("   链接: ${result.url}")
-                        appendLine("   摘要: ${result.snippet}")
+                val results = search(normalizedInput)
+                Log.d(
+                    TAG,
+                    "execute success, resultCount=${results.size}, elapsedMs=${System.currentTimeMillis() - startTime}"
+                )
+                if (results.isEmpty()) {
+                    "未找到与\"$normalizedInput\"相关的搜索结果"
+                } else {
+                    buildString {
+                        appendLine("以下是\"$normalizedInput\"的搜索结果：")
                         appendLine()
+                        results.forEachIndexed { index, result ->
+                            appendLine("${index + 1}. ${result.title}")
+                            appendLine("   链接: ${result.url}")
+                            appendLine("   摘要: ${result.snippet}")
+                            appendLine()
+                        }
                     }
                 }
             }
         } catch (e: Exception) {
             Log.e(
                 TAG,
-                "execute failed, elapsedMs=${System.currentTimeMillis() - startTime}, query=$query",
+                "execute failed, elapsedMs=${System.currentTimeMillis() - startTime}, input=$normalizedInput",
                 e
             )
             "搜索失败: 网络超时或搜索服务暂时不可用，请稍后重试"
@@ -89,6 +104,22 @@ object WebSearchTool {
         val results = parseBingHtml(html)
         Log.d(TAG, "searchBing parsed, resultCount=${results.size}")
         return results
+    }
+
+    private fun fetchUrl(url: String): String {
+        Log.d(TAG, "fetchUrl start, url=$url")
+        val body = executeRequest(url)
+        val title = extractTitle(body)
+        val content = extractReadableContent(body)
+        Log.d(TAG, "fetchUrl parsed, title=${title.take(80)}, contentLength=${content.length}")
+        return buildString {
+            appendLine("以下是 $url 的网页内容：")
+            if (title.isNotBlank()) {
+                appendLine("标题: $title")
+            }
+            appendLine()
+            append(content)
+        }.trim()
     }
 
     private fun executeRequest(url: String): String {
@@ -232,6 +263,54 @@ object WebSearchTool {
         } else {
             rawUrl
         }
+    }
+
+    private fun looksLikeUrl(input: String): Boolean {
+        val trimmed = input.trim()
+        if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+            return true
+        }
+        if (trimmed.startsWith("www.", ignoreCase = true)) {
+            return true
+        }
+        return runCatching {
+            val uri = java.net.URI(trimmed)
+            !uri.scheme.isNullOrBlank() && !uri.host.isNullOrBlank()
+        }.getOrDefault(false)
+    }
+
+    private fun normalizeUrl(input: String): String {
+        val trimmed = input.trim()
+        return if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+            trimmed
+        } else {
+            "https://$trimmed"
+        }
+    }
+
+    private fun extractTitle(html: String): String {
+        val matcher = Pattern.compile("""<title[^>]*>(.*?)</title>""", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
+            .matcher(html)
+        return if (matcher.find()) stripHtml(matcher.group(1) ?: "") else ""
+    }
+
+    private fun extractReadableContent(body: String): String {
+        val normalized = body.trim()
+        if (normalized.isBlank()) {
+            return "网页内容为空"
+        }
+        if (!normalized.contains("<html", ignoreCase = true) && !normalized.contains("<body", ignoreCase = true)) {
+            return normalized.take(MAX_DIRECT_CONTENT_LENGTH)
+        }
+
+        val withoutScripts = normalized
+            .replace(Regex("(?is)<script[^>]*>.*?</script>"), " ")
+            .replace(Regex("(?is)<style[^>]*>.*?</style>"), " ")
+            .replace(Regex("(?is)<noscript[^>]*>.*?</noscript>"), " ")
+        val text = stripHtml(withoutScripts)
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return text.take(MAX_DIRECT_CONTENT_LENGTH).ifBlank { "未提取到可读正文" }
     }
 
     private fun stripHtml(html: String): String {

@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -27,11 +28,16 @@ class SettingsViewModel(
 ) : ViewModel() {
 
     companion object {
+        const val DEFAULT_MAX_TOOL_CALL_ROUNDS = 8
+        const val MIN_MAX_TOOL_CALL_ROUNDS = 1
+        const val MAX_MAX_TOOL_CALL_ROUNDS = 32
+
         private val KEY_SHOW_CHAR_COUNT = booleanPreferencesKey("ui_show_char_count")
         private val KEY_SHOW_TOKEN_COUNT = booleanPreferencesKey("ui_show_token_count")
         private val KEY_SHOW_MODEL_NAME = booleanPreferencesKey("ui_show_model_name")
         private val KEY_SHOW_TIMESTAMP = booleanPreferencesKey("ui_show_timestamp")
         private val KEY_WEB_SEARCH = booleanPreferencesKey("capability_web_search")
+        private val KEY_MAX_TOOL_CALL_ROUNDS = intPreferencesKey("capability_max_tool_call_rounds")
     }
 
     private val _models = MutableStateFlow<List<ModelConfig>>(emptyList())
@@ -51,6 +57,9 @@ class SettingsViewModel(
 
     private val _webSearchEnabled = MutableStateFlow(false)
     val webSearchEnabled: StateFlow<Boolean> = _webSearchEnabled
+
+    private val _maxToolCallRounds = MutableStateFlow(DEFAULT_MAX_TOOL_CALL_ROUNDS)
+    val maxToolCallRounds: StateFlow<Int> = _maxToolCallRounds
 
     // Directly expose languageManager's StateFlow
     val currentLanguage: StateFlow<String> = languageManager.currentLanguage
@@ -79,6 +88,9 @@ class SettingsViewModel(
             _showModelName.value = prefs[KEY_SHOW_MODEL_NAME] ?: false
             _showTimestamp.value = prefs[KEY_SHOW_TIMESTAMP] ?: false
             _webSearchEnabled.value = prefs[KEY_WEB_SEARCH] ?: false
+            _maxToolCallRounds.value =
+                (prefs[KEY_MAX_TOOL_CALL_ROUNDS] ?: DEFAULT_MAX_TOOL_CALL_ROUNDS)
+                    .coerceIn(MIN_MAX_TOOL_CALL_ROUNDS, MAX_MAX_TOOL_CALL_ROUNDS)
         }
     }
 
@@ -139,6 +151,16 @@ class SettingsViewModel(
                         prefs[KEY_WEB_SEARCH] = enabled
                     }
                 }
+            }
+            SettingsAdapter.CapabilitySetting.MAX_TOOL_CALL_ROUNDS -> Unit
+        }
+    }
+
+    fun updateMaxToolCallRounds(rounds: Int) {
+        val clamped = rounds.coerceIn(MIN_MAX_TOOL_CALL_ROUNDS, MAX_MAX_TOOL_CALL_ROUNDS)
+        viewModelScope.launch {
+            dataStore.edit { prefs ->
+                prefs[KEY_MAX_TOOL_CALL_ROUNDS] = clamped
             }
         }
     }

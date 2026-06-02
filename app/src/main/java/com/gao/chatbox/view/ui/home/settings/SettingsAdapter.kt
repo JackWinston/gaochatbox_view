@@ -15,6 +15,7 @@ class SettingsAdapter(
     private val onAddModelClick: () -> Unit,
     private val onUiSwitchChanged: (UiSetting, Boolean) -> Unit,
     private val onCapabilitySwitchChanged: (CapabilitySetting, Boolean) -> Unit,
+    private val onMaxToolCallRoundsClick: () -> Unit,
     private val onLanguageClick: () -> Unit,
     private val onThemeClick: () -> Unit
 ) : BaseMultiItemAdapter<SettingsAdapter.SettingsItem>() {
@@ -27,7 +28,7 @@ class SettingsAdapter(
 
     enum class Section { MODEL, UI, CAPABILITY }
     enum class UiSetting { CHAR_COUNT, TOKEN_COUNT, MODEL_NAME, TIMESTAMP, LANGUAGE, THEME }
-    enum class CapabilitySetting { WEB_SEARCH }
+    enum class CapabilitySetting { WEB_SEARCH, MAX_TOOL_CALL_ROUNDS }
 
     sealed class SettingsItem {
         class Header(val section: Section) : SettingsItem()
@@ -35,6 +36,7 @@ class SettingsAdapter(
         class AddModel : SettingsItem()
         class UiSwitch(val setting: UiSetting) : SettingsItem()
         class CapabilitySwitch(val setting: CapabilitySetting) : SettingsItem()
+        class CapabilityAction(val setting: CapabilitySetting) : SettingsItem()
     }
 
     private val expandedSections = mutableSetOf(Section.MODEL)
@@ -45,6 +47,7 @@ class SettingsAdapter(
     var showModelName = false
     var showTimestamp = false
     var webSearchEnabled = false
+    var maxToolCallRounds = 8
     var currentLanguage = "system"
     var currentTheme = "system"
 
@@ -56,11 +59,16 @@ class SettingsAdapter(
                 is SettingsItem.AddModel -> TYPE_ADD_MODEL
                 is SettingsItem.UiSwitch -> TYPE_HEADER
                 is SettingsItem.CapabilitySwitch -> TYPE_HEADER
+                is SettingsItem.CapabilityAction -> TYPE_HEADER
             }
         }
 
         addItemType(TYPE_HEADER, object : OnMultiItem<SettingsItem, QuickViewHolder>() {
-            override fun onCreate(context: Context, parent: ViewGroup, viewType: Int): QuickViewHolder {
+            override fun onCreate(
+                context: Context,
+                parent: ViewGroup,
+                viewType: Int
+            ): QuickViewHolder {
                 return QuickViewHolder(R.layout.item_section_header, parent)
             }
 
@@ -69,13 +77,18 @@ class SettingsAdapter(
                     is SettingsItem.Header -> bindHeader(holder, item)
                     is SettingsItem.UiSwitch -> bindUiSwitch(holder, item)
                     is SettingsItem.CapabilitySwitch -> bindCapabilitySwitch(holder, item)
+                    is SettingsItem.CapabilityAction -> bindCapabilityAction(holder, item)
                     else -> {}
                 }
             }
         })
 
         addItemType(TYPE_MODEL_ITEM, object : OnMultiItem<SettingsItem, QuickViewHolder>() {
-            override fun onCreate(context: Context, parent: ViewGroup, viewType: Int): QuickViewHolder {
+            override fun onCreate(
+                context: Context,
+                parent: ViewGroup,
+                viewType: Int
+            ): QuickViewHolder {
                 return QuickViewHolder(R.layout.item_model_config, parent)
             }
 
@@ -94,7 +107,11 @@ class SettingsAdapter(
         })
 
         addItemType(TYPE_ADD_MODEL, object : OnMultiItem<SettingsItem, QuickViewHolder>() {
-            override fun onCreate(context: Context, parent: ViewGroup, viewType: Int): QuickViewHolder {
+            override fun onCreate(
+                context: Context,
+                parent: ViewGroup,
+                viewType: Int
+            ): QuickViewHolder {
                 return QuickViewHolder(R.layout.item_add_model, parent)
             }
 
@@ -108,11 +125,13 @@ class SettingsAdapter(
         val section = item.section
         val isExpanded = expandedSections.contains(section)
 
-        holder.setText(R.id.tv_section_title, when (section) {
-            Section.MODEL -> holder.itemView.context.getString(R.string.section_model)
-            Section.UI -> holder.itemView.context.getString(R.string.section_ui)
-            Section.CAPABILITY -> holder.itemView.context.getString(R.string.section_capability)
-        })
+        holder.setText(
+            R.id.tv_section_title, when (section) {
+                Section.MODEL -> holder.itemView.context.getString(R.string.section_model)
+                Section.UI -> holder.itemView.context.getString(R.string.section_ui)
+                Section.CAPABILITY -> holder.itemView.context.getString(R.string.section_capability)
+            }
+        )
 
         holder.getView<View>(R.id.iv_expand).animate()
             .rotation(if (isExpanded) 180f else 0f)
@@ -133,37 +152,53 @@ class SettingsAdapter(
 
         when (item.setting) {
             UiSetting.CHAR_COUNT -> {
-                holder.setText(R.id.tv_section_title, holder.itemView.context.getString(R.string.ui_show_char_count))
+                holder.setText(
+                    R.id.tv_section_title,
+                    holder.itemView.context.getString(R.string.ui_show_char_count)
+                )
                 switchView.isChecked = showCharCount
                 switchView.setOnCheckedChangeListener { _, isChecked ->
                     showCharCount = isChecked
                     onUiSwitchChanged(UiSetting.CHAR_COUNT, isChecked)
                 }
             }
+
             UiSetting.TOKEN_COUNT -> {
-                holder.setText(R.id.tv_section_title, holder.itemView.context.getString(R.string.ui_show_token_count))
+                holder.setText(
+                    R.id.tv_section_title,
+                    holder.itemView.context.getString(R.string.ui_show_token_count)
+                )
                 switchView.isChecked = showTokenCount
                 switchView.setOnCheckedChangeListener { _, isChecked ->
                     showTokenCount = isChecked
                     onUiSwitchChanged(UiSetting.TOKEN_COUNT, isChecked)
                 }
             }
+
             UiSetting.MODEL_NAME -> {
-                holder.setText(R.id.tv_section_title, holder.itemView.context.getString(R.string.ui_show_model_name))
+                holder.setText(
+                    R.id.tv_section_title,
+                    holder.itemView.context.getString(R.string.ui_show_model_name)
+                )
                 switchView.isChecked = showModelName
                 switchView.setOnCheckedChangeListener { _, isChecked ->
                     showModelName = isChecked
                     onUiSwitchChanged(UiSetting.MODEL_NAME, isChecked)
                 }
             }
+
             UiSetting.TIMESTAMP -> {
-                holder.setText(R.id.tv_section_title, holder.itemView.context.getString(R.string.ui_show_timestamp))
+                holder.setText(
+                    R.id.tv_section_title,
+                    holder.itemView.context.getString(R.string.ui_show_timestamp)
+                )
                 switchView.isChecked = showTimestamp
                 switchView.setOnCheckedChangeListener { _, isChecked ->
                     showTimestamp = isChecked
                     onUiSwitchChanged(UiSetting.TIMESTAMP, isChecked)
                 }
             }
+
             UiSetting.LANGUAGE -> {
                 val context = holder.itemView.context
                 val languageName = when (currentLanguage) {
@@ -171,11 +206,15 @@ class SettingsAdapter(
                     "en" -> context.getString(R.string.language_english)
                     else -> context.getString(R.string.language_system)
                 }
-                holder.setText(R.id.tv_section_title, "${context.getString(R.string.ui_language)}: $languageName")
+                holder.setText(
+                    R.id.tv_section_title,
+                    "${context.getString(R.string.ui_language)}: $languageName"
+                )
                 holder.setGone(R.id.iv_expand, true)
                 holder.setGone(R.id.switch_section, true)
                 holder.itemView.setOnClickListener { onLanguageClick() }
             }
+
             UiSetting.THEME -> {
                 val context = holder.itemView.context
                 val themeName = when (currentTheme) {
@@ -183,7 +222,10 @@ class SettingsAdapter(
                     "dark" -> context.getString(R.string.theme_dark)
                     else -> context.getString(R.string.theme_system)
                 }
-                holder.setText(R.id.tv_section_title, "${context.getString(R.string.ui_theme)}: $themeName")
+                holder.setText(
+                    R.id.tv_section_title,
+                    "${context.getString(R.string.ui_theme)}: $themeName"
+                )
                 holder.setGone(R.id.iv_expand, true)
                 holder.setGone(R.id.switch_section, true)
                 holder.itemView.setOnClickListener { onThemeClick() }
@@ -204,16 +246,42 @@ class SettingsAdapter(
 
         when (item.setting) {
             CapabilitySetting.WEB_SEARCH -> {
-                holder.setText(R.id.tv_section_title, holder.itemView.context.getString(R.string.capability_web_search))
+                holder.setText(
+                    R.id.tv_section_title,
+                    holder.itemView.context.getString(R.string.capability_web_search)
+                )
                 switchView.isChecked = webSearchEnabled
                 switchView.setOnCheckedChangeListener { _, isChecked ->
                     webSearchEnabled = isChecked
                     onCapabilitySwitchChanged(CapabilitySetting.WEB_SEARCH, isChecked)
                 }
             }
+
+            else -> {}
         }
 
         holder.itemView.setOnClickListener(null)
+    }
+
+    private fun bindCapabilityAction(holder: QuickViewHolder, item: SettingsItem.CapabilityAction) {
+        holder.setGone(R.id.iv_expand, true)
+        holder.setGone(R.id.switch_section, true)
+
+        when (item.setting) {
+            CapabilitySetting.MAX_TOOL_CALL_ROUNDS -> {
+                val context = holder.itemView.context
+                holder.setText(
+                    R.id.tv_section_title,
+                    context.getString(
+                        R.string.capability_max_tool_call_rounds_value,
+                        maxToolCallRounds
+                    )
+                )
+                holder.itemView.setOnClickListener { onMaxToolCallRoundsClick() }
+            }
+
+            else -> holder.itemView.setOnClickListener(null)
+        }
     }
 
     fun setModels(newModels: List<ModelConfig>) {
@@ -248,6 +316,7 @@ class SettingsAdapter(
         newItems.add(SettingsItem.Header(Section.CAPABILITY))
         if (expandedSections.contains(Section.CAPABILITY)) {
             newItems.add(SettingsItem.CapabilitySwitch(CapabilitySetting.WEB_SEARCH))
+            newItems.add(SettingsItem.CapabilityAction(CapabilitySetting.MAX_TOOL_CALL_ROUNDS))
         }
 
         submitList(newItems)

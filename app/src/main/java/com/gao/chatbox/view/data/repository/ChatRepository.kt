@@ -1,6 +1,4 @@
 package com.gao.chatbox.view.data.repository
-
-import android.util.Log
 import com.gao.chatbox.view.data.local.db.ChatDatabaseManager
 import com.gao.chatbox.view.data.model.ModelConfig
 import com.gao.chatbox.view.data.remote.AnthropicMessage
@@ -14,7 +12,6 @@ import com.gao.chatbox.view.data.remote.ToolCallFunction
 import com.gao.chatbox.view.data.remote.ToolDefinition
 import com.gao.chatbox.view.data.remote.ToolFunctionDefinition
 import com.gao.chatbox.view.util.ApiClient
-import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -36,10 +33,6 @@ data class MessageContext(
 class ChatRepository @Inject constructor(
     private val dbManager: ChatDatabaseManager
 ) {
-
-    companion object {
-        private const val TAG = "ChatRepository"
-    }
 
     suspend fun sendMessage(
         conversationId: Long,
@@ -135,32 +128,34 @@ class ChatRepository @Inject constructor(
     suspend fun sendToolResult(
         conversationId: Long,
         history: List<OpenAiChatMessage>,
+        assistantContent: String?,
         toolCalls: List<ToolCall>,
         toolResults: Map<String, String>,
         config: ModelConfig,
-        systemPrompt: String?,
+        enableWebSearch: Boolean,
         assistantMessageId: Long
     ): StreamResult {
         val model = config.defaultModel.ifEmpty { config.models.firstOrNull() ?: "" }
         val api = ApiClient.buildOpenAiApiStreaming(config.apiUrl)
+        val tools = if (enableWebSearch) buildWebSearchTools() else null
 
         val messages = history.toMutableList()
-
-        // Add assistant message with tool_calls
-        messages.add(OpenAiChatMessage(
-            role = "assistant",
-            content = null,
-            toolCalls = toolCalls
-        ))
-
-        // Add tool results
-        for (toolCall in toolCalls) {
-            val result = toolResults[toolCall.id] ?: "工具执行失败"
-            messages.add(OpenAiChatMessage(
-                role = "tool",
-                content = result,
-                toolCallId = toolCall.id
-            ))
+        messages.add(
+            OpenAiChatMessage(
+                role = "assistant",
+                content = assistantContent,
+                toolCalls = toolCalls
+            )
+        )
+        toolCalls.forEach { toolCall ->
+            messages.add(
+                OpenAiChatMessage(
+                    role = "tool",
+                    content = toolResults[toolCall.id] ?: "工具执行失败",
+                    toolCallId = toolCall.id,
+                    name = toolCall.function.name
+                )
+            )
         }
 
         val request = OpenAiChatRequest(
@@ -169,20 +164,8 @@ class ChatRepository @Inject constructor(
             temperature = config.temperature,
             stream = true,
             streamOptions = mapOf("include_usage" to true),
-            tools = null
-        )
-
-        Log.d(
-            TAG,
-            "sendToolResult request, model=$model, messageCount=${messages.size}, toolCount=${toolCalls.size}, toolsEnabled=false"
-        )
-        Log.d(
-            TAG,
-            "sendToolResult messageSummary=${messages.mapIndexed { index, msg -> "[$index role=${msg.role} contentType=${msg.content?.javaClass?.simpleName ?: "null"} toolCalls=${msg.toolCalls?.size ?: 0} toolCallId=${msg.toolCallId ?: ""}]" }.joinToString(" ")}"
-        )
-        Log.d(
-            TAG,
-            "sendToolResult requestJson=${Gson().toJson(request).take(4000)}"
+            tools = tools,
+            toolChoice = null
         )
 
         val responseBody = api.createChatCompletionStream(
@@ -202,16 +185,16 @@ class ChatRepository @Inject constructor(
             ToolDefinition(
                 function = ToolFunctionDefinition(
                     name = "search_web",
-                    description = "搜索互联网获取最新信息，当需要查询实时信息、新闻、天气、最新事件等时使用",
+                    description = "输入关键词时搜索互联网获取最新信息；输入 URL 时直接抓取网页内容。当需要查询实时信息、新闻、天气、网页正文等时使用",
                     parameters = mapOf(
                         "type" to "object",
                         "properties" to mapOf(
-                            "query" to mapOf(
+                            "input" to mapOf(
                                 "type" to "string",
-                                "description" to "搜索关键词"
+                                "description" to "搜索关键词或完整 URL。关键词会触发搜索，URL 会直接抓取页面内容"
                             )
                         ),
-                        "required" to listOf("query")
+                        "required" to listOf("input")
                     )
                 )
             )

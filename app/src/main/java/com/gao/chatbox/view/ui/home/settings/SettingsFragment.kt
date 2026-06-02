@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.fragment.app.Fragment
@@ -65,6 +66,7 @@ class SettingsFragment : Fragment() {
             onCapabilitySwitchChanged = { setting, checked ->
                 viewModel.updateCapabilitySetting(setting, checked)
             },
+            onMaxToolCallRoundsClick = { showMaxToolCallRoundsDialog() },
             onLanguageClick = { showLanguageDialog() },
             onThemeClick = { showThemeDialog() }
         )
@@ -80,32 +82,89 @@ class SettingsFragment : Fragment() {
                     }
                 }
                 launch {
-                    viewModel.showCharCount.collect { adapter?.showCharCount = it }
+                    viewModel.showCharCount.collect {
+                        adapter?.showCharCount = it
+                        adapter?.rebuildItems()
+                    }
                 }
                 launch {
-                    viewModel.showTokenCount.collect { adapter?.showTokenCount = it }
+                    viewModel.showTokenCount.collect {
+                        adapter?.showTokenCount = it
+                        adapter?.rebuildItems()
+                    }
                 }
                 launch {
-                    viewModel.showModelName.collect { adapter?.showModelName = it }
+                    viewModel.showModelName.collect {
+                        adapter?.showModelName = it
+                        adapter?.rebuildItems()
+                    }
                 }
                 launch {
-                    viewModel.showTimestamp.collect { adapter?.showTimestamp = it }
+                    viewModel.showTimestamp.collect {
+                        adapter?.showTimestamp = it
+                        adapter?.rebuildItems()
+                    }
                 }
                 launch {
-                    viewModel.webSearchEnabled.collect { adapter?.webSearchEnabled = it }
+                    viewModel.webSearchEnabled.collect {
+                        adapter?.webSearchEnabled = it
+                        adapter?.rebuildItems()
+                    }
+                }
+                launch {
+                    viewModel.maxToolCallRounds.collect {
+                        adapter?.maxToolCallRounds = it
+                        adapter?.rebuildItems()
+                    }
                 }
                 launch {
                     viewModel.currentLanguage.collect { language ->
                         adapter?.currentLanguage = language
+                        adapter?.rebuildItems()
                     }
                 }
                 launch {
                     viewModel.currentTheme.collect { theme ->
                         adapter?.currentTheme = theme
+                        adapter?.rebuildItems()
                     }
                 }
             }
         }
+    }
+
+    private fun showMaxToolCallRoundsDialog() {
+        val editText = EditText(requireContext()).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(viewModel.maxToolCallRounds.value.toString())
+            setSelection(text?.length ?: 0)
+            setPadding(64, 32, 64, 16)
+            hint = getString(R.string.hint_max_tool_call_rounds)
+        }
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.dialog_title_max_tool_call_rounds)
+            .setView(editText)
+            .setPositiveButton(R.string.dialog_confirm) { _, _ ->
+                val value = editText.text?.toString()?.trim()?.toIntOrNull()
+                if (value == null ||
+                    value !in SettingsViewModel.MIN_MAX_TOOL_CALL_ROUNDS..SettingsViewModel.MAX_MAX_TOOL_CALL_ROUNDS
+                ) {
+                    Toast.makeText(
+                        requireContext(),
+                        getString(
+                            R.string.msg_invalid_max_tool_call_rounds,
+                            SettingsViewModel.MIN_MAX_TOOL_CALL_ROUNDS,
+                            SettingsViewModel.MAX_MAX_TOOL_CALL_ROUNDS
+                        ),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setPositiveButton
+                }
+                viewModel.updateMaxToolCallRounds(value)
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
     }
 
     private fun showModelPopupMenu(anchorView: View, config: ModelConfig) {

@@ -56,6 +56,11 @@
 
     <!-- Capability settings -->
     <string name="capability_web_search">联网搜索</string>
+    <string name="capability_max_tool_call_rounds">连续工具调用最大轮次</string>
+    <string name="capability_max_tool_call_rounds_value">连续工具调用最大轮次: %1$d 次</string>
+    <string name="dialog_title_max_tool_call_rounds">设置连续工具调用最大轮次</string>
+    <string name="hint_max_tool_call_rounds">输入 1 到 32 的整数</string>
+    <string name="msg_invalid_max_tool_call_rounds">请输入 %1$d 到 %2$d 之间的整数</string>
 
     <!-- Language settings -->
     <string name="ui_language">语言</string>
@@ -93,6 +98,7 @@
     <!-- Chat items -->
     <string name="chat_system_prompt_label">系统提示词</string>
     <string name="chat_thinking">正在思考中…</string>
+    <string name="chat_executing_tools">正在调用工具…</string>
     <string name="chat_streaming_responding">正在回答中…</string>
     <string name="chat_streaming_done">回答完成</string>
     <string name="chat_expand">展开</string>
