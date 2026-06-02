@@ -10,7 +10,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.chad.library.adapter4.BaseMultiItemAdapter
 import com.chad.library.adapter4.viewholder.QuickViewHolder
 import com.gao.chatbox.view.R
-import com.tencent.mmkv.MMKV
 import io.noties.markwon.Markwon
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -28,14 +27,8 @@ class ChatAdapter(
         const val TYPE_ASSISTANT = 3
         const val TYPE_STREAMING = 4
         const val TYPE_TOOL_CALL = 5
-
-        private const val KEY_SHOW_CHAR_COUNT = "ui_show_char_count"
-        private const val KEY_SHOW_TOKEN_COUNT = "ui_show_token_count"
-        private const val KEY_SHOW_MODEL_NAME = "ui_show_model_name"
-        private const val KEY_SHOW_TIMESTAMP = "ui_show_timestamp"
     }
 
-    private val mmkv: MMKV by lazy { MMKV.defaultMMKV() }
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
     private var showCharCount = false
@@ -43,15 +36,16 @@ class ChatAdapter(
     private var showModelName = false
     private var showTimestamp = false
 
-    init {
-        refreshSettings()
-    }
-
-    fun refreshSettings() {
-        showCharCount = mmkv.decodeBool(KEY_SHOW_CHAR_COUNT, false)
-        showTokenCount = mmkv.decodeBool(KEY_SHOW_TOKEN_COUNT, false)
-        showModelName = mmkv.decodeBool(KEY_SHOW_MODEL_NAME, false)
-        showTimestamp = mmkv.decodeBool(KEY_SHOW_TIMESTAMP, false)
+    fun updateSettings(
+        showCharCount: Boolean,
+        showTokenCount: Boolean,
+        showModelName: Boolean,
+        showTimestamp: Boolean
+    ) {
+        this.showCharCount = showCharCount
+        this.showTokenCount = showTokenCount
+        this.showModelName = showModelName
+        this.showTimestamp = showTimestamp
     }
 
     interface ChatAdapterListener {

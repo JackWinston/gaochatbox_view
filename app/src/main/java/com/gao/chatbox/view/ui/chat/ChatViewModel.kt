@@ -1,5 +1,9 @@
 package com.gao.chatbox.view.ui.chat
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -15,12 +19,12 @@ import com.gao.chatbox.view.data.repository.StreamResult
 import com.gao.chatbox.view.util.ModelConfigManager
 import com.gao.chatbox.view.util.WebSearchTool
 import com.google.gson.Gson
-import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -29,11 +33,15 @@ class ChatViewModel(
     private val chatRepository: ChatRepository,
     private val dbManager: ChatDatabaseManager,
     private val modelConfigManager: ModelConfigManager,
-    private val mmkv: MMKV
+    private val dataStore: DataStore<Preferences>
 ) : ViewModel() {
 
     companion object {
-        private const val KEY_WEB_SEARCH = "capability_web_search"
+        private val KEY_WEB_SEARCH = booleanPreferencesKey("capability_web_search")
+        private val KEY_SHOW_CHAR_COUNT = booleanPreferencesKey("ui_show_char_count")
+        private val KEY_SHOW_TOKEN_COUNT = booleanPreferencesKey("ui_show_token_count")
+        private val KEY_SHOW_MODEL_NAME = booleanPreferencesKey("ui_show_model_name")
+        private val KEY_SHOW_TIMESTAMP = booleanPreferencesKey("ui_show_timestamp")
     }
 
     // UI State
@@ -54,6 +62,19 @@ class ChatViewModel(
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage
+
+    // UI Settings
+    private val _showCharCount = MutableStateFlow(false)
+    val showCharCount: StateFlow<Boolean> = _showCharCount
+
+    private val _showTokenCount = MutableStateFlow(false)
+    val showTokenCount: StateFlow<Boolean> = _showTokenCount
+
+    private val _showModelName = MutableStateFlow(false)
+    val showModelName: StateFlow<Boolean> = _showModelName
+
+    private val _showTimestamp = MutableStateFlow(false)
+    val showTimestamp: StateFlow<Boolean> = _showTimestamp
 
     // Internal state
     var conversationId: Long = 0L
@@ -85,19 +106,33 @@ class ChatViewModel(
         this.systemPromptTag = systemPromptTag
         _title.value = systemPromptTag
 
-        // Init web search from global setting
-        _webSearchEnabled.value = mmkv.decodeBool(KEY_WEB_SEARCH, false)
+        viewModelScope.launch {
+            // Init web search from global setting
+            _webSearchEnabled.value = dataStore.data.map { prefs ->
+                prefs[KEY_WEB_SEARCH] ?: false
+            }.first()
 
-        // Init default model
-        val defaultConfig = modelConfigManager.getDefault()
-        _selectedModelName.value = defaultConfig?.defaultModel?.ifEmpty { defaultConfig.models.firstOrNull() } ?: ""
+            // Init UI settings
+            dataStore.data.collect { prefs ->
+                _showCharCount.value = prefs[KEY_SHOW_CHAR_COUNT] ?: false
+                _showTokenCount.value = prefs[KEY_SHOW_TOKEN_COUNT] ?: false
+                _showModelName.value = prefs[KEY_SHOW_MODEL_NAME] ?: false
+                _showTimestamp.value = prefs[KEY_SHOW_TIMESTAMP] ?: false
+            }
+        }
 
-        modelConfigManager.init()
+        viewModelScope.launch {
+            // Init default model
+            val defaultConfig = modelConfigManager.getDefault()
+            _selectedModelName.value = defaultConfig?.defaultModel?.ifEmpty { defaultConfig.models.firstOrNull() } ?: ""
 
-        if (conversationId > 0L) {
-            loadExistingConversation(conversationId)
-        } else {
-            buildInitialItems()
+            modelConfigManager.init()
+
+            if (conversationId > 0L) {
+                loadExistingConversation(conversationId)
+            } else {
+                buildInitialItems()
+            }
         }
     }
 
@@ -211,48 +246,48 @@ class ChatViewModel(
     fun sendMessage(text: String) {
         if (_isStreaming.value) return
 
-        val config = modelConfigManager.getDefault()
-        if (config == null) {
-            showErrorMessage("没有可用的模型配置")
-            return
-        }
+        viewModelScope.launch {
+            val config = modelConfigManager.getDefault()
+            if (config == null) {
+                showErrorMessage("没有可用的模型配置")
+                return@launch
+            }
 
-        val items = _chatItems.value.toMutableList()
-        val now = System.currentTimeMillis()
+            val items = _chatItems.value.toMutableList()
+            val now = System.currentTimeMillis()
 
-        // Insert timestamp if needed
-        val timestamp = ChatItemBuilder.buildTimestampIfNeeded(items, now)
-        if (timestamp != null) {
-            items.add(timestamp)
-        }
+            // Insert timestamp if needed
+            val timestamp = ChatItemBuilder.buildTimestampIfNeeded(items, now)
+            if (timestamp != null) {
+                items.add(timestamp)
+            }
 
-        // Add user message + streaming placeholder
-        items.add(
-            ChatItem.UserMessage(
-                id = "msg_$now",
-                content = text
+            // Add user message + streaming placeholder
+            items.add(
+                ChatItem.UserMessage(
+                    id = "msg_$now",
+                    content = text
+                )
             )
-        )
-        thinkingStartTime = System.currentTimeMillis()
-        items.add(ChatItem.StreamingMessage(id = "streaming_$now", isThinking = true, thinkingStartTime = thinkingStartTime))
-        _chatItems.value = items
+            thinkingStartTime = System.currentTimeMillis()
+            items.add(ChatItem.StreamingMessage(id = "streaming_$now", isThinking = true, thinkingStartTime = thinkingStartTime))
+            _chatItems.value = items
 
-        // Build message history
-        val userMessages = items.filterIsInstance<ChatItem.UserMessage>()
-        val assistantMessages = items.filterIsInstance<ChatItem.AssistantMessage>()
-        val history = mutableListOf<MessageContext>()
-        val pairs = minOf(userMessages.size, assistantMessages.size)
-        for (i in 0 until pairs) {
-            history.add(MessageContext("user", userMessages[i].content))
-            history.add(MessageContext("assistant", assistantMessages[i].content))
-        }
+            // Build message history
+            val userMessages = items.filterIsInstance<ChatItem.UserMessage>()
+            val assistantMessages = items.filterIsInstance<ChatItem.AssistantMessage>()
+            val history = mutableListOf<MessageContext>()
+            val pairs = minOf(userMessages.size, assistantMessages.size)
+            for (i in 0 until pairs) {
+                history.add(MessageContext("user", userMessages[i].content))
+                history.add(MessageContext("assistant", assistantMessages[i].content))
+            }
 
-        _isStreaming.value = true
-        accumulatedContent = ""
-        lastUIUpdateTime = 0L
-        toolCallRoundCount = 0
+            _isStreaming.value = true
+            accumulatedContent = ""
+            lastUIUpdateTime = 0L
+            toolCallRoundCount = 0
 
-        streamingJob = viewModelScope.launch {
             try {
                 pendingToolCalls.clear()
                 val result = chatRepository.sendMessage(
@@ -515,9 +550,9 @@ class ChatViewModel(
     private fun generateTitle(items: List<ChatItem>) {
         val userMsg = items.filterIsInstance<ChatItem.UserMessage>().firstOrNull()?.content ?: return
         val assistantMsg = accumulatedContent
-        val config = modelConfigManager.getDefault() ?: return
 
         viewModelScope.launch {
+            val config = modelConfigManager.getDefault() ?: return@launch
             val newTitle = chatRepository.generateTitle(config, userMsg, assistantMsg)
             if (!newTitle.isNullOrBlank()) {
                 titleGenerated = true
@@ -565,15 +600,21 @@ class ChatViewModel(
     fun toggleWebSearch() {
         val newValue = !_webSearchEnabled.value
         _webSearchEnabled.value = newValue
-        mmkv.encode(KEY_WEB_SEARCH, newValue)
+        viewModelScope.launch {
+            dataStore.edit { prefs ->
+                prefs[KEY_WEB_SEARCH] = newValue
+            }
+        }
     }
 
     fun selectModel(modelName: String, config: ModelConfig) {
         _selectedModelName.value = modelName
-        if (!config.isDefault) {
-            modelConfigManager.update(config.copy(isDefault = true, defaultModel = modelName))
-        } else if (config.defaultModel != modelName) {
-            modelConfigManager.update(config.copy(defaultModel = modelName))
+        viewModelScope.launch {
+            if (!config.isDefault) {
+                modelConfigManager.update(config.copy(isDefault = true, defaultModel = modelName))
+            } else if (config.defaultModel != modelName) {
+                modelConfigManager.update(config.copy(defaultModel = modelName))
+            }
         }
     }
 
@@ -589,7 +630,7 @@ class ChatViewModel(
         // Just finish the activity - deletion is handled externally
     }
 
-    fun getModelConfigs(): List<ModelConfig> = modelConfigManager.getAll()
+    suspend fun getModelConfigs(): List<ModelConfig> = modelConfigManager.getAll()
 
     // endregion
 
@@ -597,11 +638,11 @@ class ChatViewModel(
         private val chatRepository: ChatRepository,
         private val dbManager: ChatDatabaseManager,
         private val modelConfigManager: ModelConfigManager,
-        private val mmkv: MMKV
+        private val dataStore: DataStore<Preferences>
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return ChatViewModel(chatRepository, dbManager, modelConfigManager, mmkv) as T
+            return ChatViewModel(chatRepository, dbManager, modelConfigManager, dataStore) as T
         }
     }
 }

@@ -51,7 +51,7 @@ dependencies {
     implementation(libs.androidx.fragment.ktx)
     implementation(libs.flexbox)
     implementation(libs.gson)
-    implementation(libs.mmkv)
+    implementation(libs.androidx.datastore.preferences)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.retrofit)

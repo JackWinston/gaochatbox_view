@@ -1,12 +1,15 @@
 package com.gao.chatbox.view.ui.home.settings
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gao.chatbox.view.data.model.ModelConfig
 import com.gao.chatbox.view.util.ApiClient
 import com.gao.chatbox.view.util.ModelConfigManager
-import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,15 +19,15 @@ import javax.inject.Inject
 
 class SettingsViewModel(
     private val modelConfigManager: ModelConfigManager,
-    private val mmkv: MMKV
+    private val dataStore: DataStore<Preferences>
 ) : ViewModel() {
 
     companion object {
-        private const val KEY_SHOW_CHAR_COUNT = "ui_show_char_count"
-        private const val KEY_SHOW_TOKEN_COUNT = "ui_show_token_count"
-        private const val KEY_SHOW_MODEL_NAME = "ui_show_model_name"
-        private const val KEY_SHOW_TIMESTAMP = "ui_show_timestamp"
-        private const val KEY_WEB_SEARCH = "capability_web_search"
+        private val KEY_SHOW_CHAR_COUNT = booleanPreferencesKey("ui_show_char_count")
+        private val KEY_SHOW_TOKEN_COUNT = booleanPreferencesKey("ui_show_token_count")
+        private val KEY_SHOW_MODEL_NAME = booleanPreferencesKey("ui_show_model_name")
+        private val KEY_SHOW_TIMESTAMP = booleanPreferencesKey("ui_show_timestamp")
+        private val KEY_WEB_SEARCH = booleanPreferencesKey("capability_web_search")
     }
 
     private val _models = MutableStateFlow<List<ModelConfig>>(emptyList())
@@ -46,36 +49,48 @@ class SettingsViewModel(
     val webSearchEnabled: StateFlow<Boolean> = _webSearchEnabled
 
     init {
-        modelConfigManager.init()
-        refreshModels()
-        loadSettings()
+        viewModelScope.launch {
+            modelConfigManager.init()
+            refreshModels()
+            loadSettings()
+        }
     }
 
     fun refreshModels() {
-        _models.value = modelConfigManager.getAll()
+        viewModelScope.launch {
+            _models.value = modelConfigManager.getAll()
+        }
     }
 
-    private fun loadSettings() {
-        _showCharCount.value = mmkv.decodeBool(KEY_SHOW_CHAR_COUNT, false)
-        _showTokenCount.value = mmkv.decodeBool(KEY_SHOW_TOKEN_COUNT, false)
-        _showModelName.value = mmkv.decodeBool(KEY_SHOW_MODEL_NAME, false)
-        _showTimestamp.value = mmkv.decodeBool(KEY_SHOW_TIMESTAMP, false)
-        _webSearchEnabled.value = mmkv.decodeBool(KEY_WEB_SEARCH, false)
+    private suspend fun loadSettings() {
+        dataStore.data.collect { prefs ->
+            _showCharCount.value = prefs[KEY_SHOW_CHAR_COUNT] ?: false
+            _showTokenCount.value = prefs[KEY_SHOW_TOKEN_COUNT] ?: false
+            _showModelName.value = prefs[KEY_SHOW_MODEL_NAME] ?: false
+            _showTimestamp.value = prefs[KEY_SHOW_TIMESTAMP] ?: false
+            _webSearchEnabled.value = prefs[KEY_WEB_SEARCH] ?: false
+        }
     }
 
     fun addModel(config: ModelConfig) {
-        modelConfigManager.add(config)
-        refreshModels()
+        viewModelScope.launch {
+            modelConfigManager.add(config)
+            refreshModels()
+        }
     }
 
     fun updateModel(config: ModelConfig) {
-        modelConfigManager.update(config)
-        refreshModels()
+        viewModelScope.launch {
+            modelConfigManager.update(config)
+            refreshModels()
+        }
     }
 
     fun deleteModel(id: String) {
-        modelConfigManager.delete(id)
-        refreshModels()
+        viewModelScope.launch {
+            modelConfigManager.delete(id)
+            refreshModels()
+        }
     }
 
     fun updateUiSetting(setting: SettingsAdapter.UiSetting, enabled: Boolean) {
@@ -85,20 +100,21 @@ class SettingsViewModel(
             SettingsAdapter.UiSetting.MODEL_NAME -> KEY_SHOW_MODEL_NAME
             SettingsAdapter.UiSetting.TIMESTAMP -> KEY_SHOW_TIMESTAMP
         }
-        mmkv.encode(key, enabled)
-        when (setting) {
-            SettingsAdapter.UiSetting.CHAR_COUNT -> _showCharCount.value = enabled
-            SettingsAdapter.UiSetting.TOKEN_COUNT -> _showTokenCount.value = enabled
-            SettingsAdapter.UiSetting.MODEL_NAME -> _showModelName.value = enabled
-            SettingsAdapter.UiSetting.TIMESTAMP -> _showTimestamp.value = enabled
+        viewModelScope.launch {
+            dataStore.edit { prefs ->
+                prefs[key] = enabled
+            }
         }
     }
 
     fun updateCapabilitySetting(setting: SettingsAdapter.CapabilitySetting, enabled: Boolean) {
         when (setting) {
             SettingsAdapter.CapabilitySetting.WEB_SEARCH -> {
-                mmkv.encode(KEY_WEB_SEARCH, enabled)
-                _webSearchEnabled.value = enabled
+                viewModelScope.launch {
+                    dataStore.edit { prefs ->
+                        prefs[KEY_WEB_SEARCH] = enabled
+                    }
+                }
             }
         }
     }
@@ -112,11 +128,11 @@ class SettingsViewModel(
 
     class Factory @Inject constructor(
         private val modelConfigManager: ModelConfigManager,
-        private val mmkv: MMKV
+        private val dataStore: DataStore<Preferences>
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return SettingsViewModel(modelConfigManager, mmkv) as T
+            return SettingsViewModel(modelConfigManager, dataStore) as T
         }
     }
 }

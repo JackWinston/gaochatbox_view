@@ -143,11 +143,6 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
         observeViewModel()
     }
 
-    override fun onResume() {
-        super.onResume()
-        chatAdapter.refreshSettings()
-    }
-
     private fun observeViewModel() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -184,8 +179,37 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
                         }
                     }
                 }
+                launch {
+                    viewModel.showCharCount.collect {
+                        updateAdapterSettings()
+                    }
+                }
+                launch {
+                    viewModel.showTokenCount.collect {
+                        updateAdapterSettings()
+                    }
+                }
+                launch {
+                    viewModel.showModelName.collect {
+                        updateAdapterSettings()
+                    }
+                }
+                launch {
+                    viewModel.showTimestamp.collect {
+                        updateAdapterSettings()
+                    }
+                }
             }
         }
+    }
+
+    private fun updateAdapterSettings() {
+        chatAdapter.updateSettings(
+            showCharCount = viewModel.showCharCount.value,
+            showTokenCount = viewModel.showTokenCount.value,
+            showModelName = viewModel.showModelName.value,
+            showTimestamp = viewModel.showTimestamp.value
+        )
     }
 
     // region ChatAdapterListener
@@ -310,11 +334,18 @@ class ChatActivity : AppCompatActivity(), ChatAdapter.ChatAdapterListener {
     // region Model Selector
 
     private fun showModelSelectorDialog() {
-        val configs = viewModel.getModelConfigs()
-        if (configs.isEmpty()) {
-            Toast.makeText(this, R.string.no_model_available, Toast.LENGTH_SHORT).show()
-            return
+        lifecycleScope.launch {
+            val configs = viewModel.getModelConfigs()
+            if (configs.isEmpty()) {
+                Toast.makeText(this@ChatActivity, R.string.no_model_available, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            showModelSelectorDialog(configs)
         }
+    }
+
+    private fun showModelSelectorDialog(configs: List<com.gao.chatbox.view.data.model.ModelConfig>) {
 
         val groupList = mutableListOf<Map<String, String>>()
         val childList = mutableListOf<List<Map<String, String>>>()

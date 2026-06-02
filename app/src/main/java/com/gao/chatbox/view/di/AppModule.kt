@@ -1,21 +1,25 @@
 package com.gao.chatbox.view.di
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
 import com.gao.chatbox.view.data.local.db.AppDatabase
 import com.gao.chatbox.view.data.local.db.dao.ConversationDao
 import com.gao.chatbox.view.data.local.db.dao.MessageDao
-import com.tencent.mmkv.MMKV
 import dagger.Module
 import dagger.Provides
 import javax.inject.Singleton
+
+val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 @Module
 object AppModule {
 
     @Provides
     @Singleton
-    fun provideMmkv(): MMKV = MMKV.defaultMMKV()
+    fun provideDataStore(context: Context): DataStore<Preferences> = context.dataStore
 
     @Provides
     @Singleton

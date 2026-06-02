@@ -2,10 +2,12 @@ package com.gao.chatbox.view.ui.home.quickstart
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import com.gao.chatbox.view.data.model.SystemPrompt
 import com.gao.chatbox.view.util.SystemPromptManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 class QuickStartViewModel(
@@ -16,27 +18,37 @@ class QuickStartViewModel(
     val prompts: StateFlow<List<SystemPrompt>> = _prompts
 
     init {
-        systemPromptManager.init()
-        refreshPrompts()
+        viewModelScope.launch {
+            systemPromptManager.init()
+            refreshPrompts()
+        }
     }
 
     fun refreshPrompts() {
-        _prompts.value = systemPromptManager.getAll()
+        viewModelScope.launch {
+            _prompts.value = systemPromptManager.getAll()
+        }
     }
 
     fun addPrompt(prompt: SystemPrompt) {
-        systemPromptManager.add(prompt)
-        refreshPrompts()
+        viewModelScope.launch {
+            systemPromptManager.add(prompt)
+            refreshPrompts()
+        }
     }
 
     fun updatePrompt(prompt: SystemPrompt) {
-        systemPromptManager.update(prompt)
-        refreshPrompts()
+        viewModelScope.launch {
+            systemPromptManager.update(prompt)
+            refreshPrompts()
+        }
     }
 
     fun deletePrompt(id: String) {
-        systemPromptManager.delete(id)
-        refreshPrompts()
+        viewModelScope.launch {
+            systemPromptManager.delete(id)
+            refreshPrompts()
+        }
     }
 
     class Factory @Inject constructor(

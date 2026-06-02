@@ -1,28 +1,42 @@
 package com.gao.chatbox.view.util
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.gao.chatbox.view.data.model.ModelConfig
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import com.tencent.mmkv.MMKV
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class ModelConfigManager @Inject constructor(
-    private val mmkv: MMKV
+    private val dataStore: DataStore<Preferences>
 ) {
 
     private val gson = Gson()
     private val listType = object : TypeToken<List<ModelConfig>>() {}.type
 
-    fun init() {
-        if (!mmkv.decodeBool(KEY_INITIALIZED, false)) {
-            mmkv.encode(KEY_INITIALIZED, true)
+    suspend fun init() {
+        val initialized = dataStore.data.map { prefs ->
+            prefs[KEY_INITIALIZED] ?: false
+        }.first()
+        if (!initialized) {
+            dataStore.edit { prefs ->
+                prefs[KEY_INITIALIZED] = true
+            }
         }
     }
 
-    fun getAll(): List<ModelConfig> {
-        val json = mmkv.decodeString(KEY_MODELS, null) ?: return emptyList()
+    suspend fun getAll(): List<ModelConfig> {
+        val json = dataStore.data.map { prefs ->
+            prefs[KEY_MODELS]
+        }.first() ?: return emptyList()
         return try {
             gson.fromJson(json, listType)
         } catch (e: Exception) {
@@ -30,11 +44,11 @@ class ModelConfigManager @Inject constructor(
         }
     }
 
-    fun getById(id: String): ModelConfig? = getAll().find { it.id == id }
+    suspend fun getById(id: String): ModelConfig? = getAll().find { it.id == id }
 
-    fun getDefault(): ModelConfig? = getAll().find { it.isDefault }
+    suspend fun getDefault(): ModelConfig? = getAll().find { it.isDefault }
 
-    fun add(config: ModelConfig) {
+    suspend fun add(config: ModelConfig) {
         val list = getAll().toMutableList()
         if (config.isDefault) {
             for (i in list.indices) {
@@ -45,7 +59,7 @@ class ModelConfigManager @Inject constructor(
         saveList(list)
     }
 
-    fun update(config: ModelConfig) {
+    suspend fun update(config: ModelConfig) {
         val list = getAll().toMutableList()
         if (config.isDefault) {
             for (i in list.indices) {
@@ -61,18 +75,20 @@ class ModelConfigManager @Inject constructor(
         }
     }
 
-    fun delete(id: String) {
+    suspend fun delete(id: String) {
         val list = getAll().toMutableList()
         list.removeAll { it.id == id }
         saveList(list)
     }
 
-    private fun saveList(list: List<ModelConfig>) {
-        mmkv.encode(KEY_MODELS, gson.toJson(list))
+    private suspend fun saveList(list: List<ModelConfig>) {
+        dataStore.edit { prefs ->
+            prefs[KEY_MODELS] = gson.toJson(list)
+        }
     }
 
     companion object {
-        private const val KEY_MODELS = "model_configs"
-        private const val KEY_INITIALIZED = "models_initialized"
+        private val KEY_MODELS = stringPreferencesKey("model_configs")
+        private val KEY_INITIALIZED = booleanPreferencesKey("models_initialized")
     }
 }
