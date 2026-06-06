@@ -256,16 +256,32 @@ class ChatRepository @Inject constructor(
             ToolDefinition(
                 function = ToolFunctionDefinition(
                     name = "search_web",
-                    description = "输入关键词时搜索互联网获取最新信息；输入 URL 时直接抓取网页内容。当需要查询实时信息、新闻、天气、网页正文等时使用",
+                    description = "搜索互联网获取最新信息。当需要查询实时信息、新闻、天气等时使用",
                     parameters = mapOf(
                         "type" to "object",
                         "properties" to mapOf(
-                            "input" to mapOf(
+                            "query" to mapOf(
                                 "type" to "string",
-                                "description" to "搜索关键词或完整 URL。关键词会触发搜索，URL 会直接抓取页面内容"
+                                "description" to "搜索关键词"
                             )
                         ),
-                        "required" to listOf("input")
+                        "required" to listOf("query")
+                    )
+                )
+            ),
+            ToolDefinition(
+                function = ToolFunctionDefinition(
+                    name = "fetch_webpage",
+                    description = "抓取指定 URL 的网页内容。当需要读取某个网页的正文时使用",
+                    parameters = mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "url" to mapOf(
+                                "type" to "string",
+                                "description" to "完整的网页 URL"
+                            )
+                        ),
+                        "required" to listOf("url")
                     )
                 )
             )

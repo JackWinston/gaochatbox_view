@@ -539,6 +539,8 @@ class ChatViewModel(
                     event.arguments?.let { builder.arguments.append(it) }
                 }
                 is StreamEvent.StreamEnd -> {
+                    // 过滤掉函数名为空的无效工具调用
+                    pendingToolCalls.entries.removeIf { it.value.name.isBlank() }
                     if (pendingToolCalls.isNotEmpty()) {
                         // 检查工具调用轮次限制
                         if (currentToolCallRoundCount >= _maxToolCallRounds.value) {
@@ -827,10 +829,20 @@ class ChatViewModel(
                 try {
                     @Suppress("UNCHECKED_CAST")
                     val args = Gson().fromJson(toolCall.function.arguments, Map::class.java) as? Map<String, Any>
-                    val input = args?.get("input")?.toString() ?: args?.get("query")?.toString().orEmpty()
-                    if (input.isBlank()) "搜索关键词或 URL 为空" else WebSearchTool.execute(input)
+                    val query = args?.get("query")?.toString().orEmpty()
+                    if (query.isBlank()) "搜索关键词为空" else WebSearchTool.searchQuery(query)
                 } catch (e: Exception) {
                     "搜索执行失败: ${e.message ?: "未知错误"}"
+                }
+            }
+            "fetch_webpage" -> {
+                try {
+                    @Suppress("UNCHECKED_CAST")
+                    val args = Gson().fromJson(toolCall.function.arguments, Map::class.java) as? Map<String, Any>
+                    val url = args?.get("url")?.toString().orEmpty()
+                    if (url.isBlank()) "URL 为空" else WebSearchTool.fetchContent(url)
+                } catch (e: Exception) {
+                    "网页内容获取失败: ${e.message ?: "未知错误"}"
                 }
             }
             else -> "未知工具: ${toolCall.function.name}"
@@ -966,9 +978,10 @@ class ChatViewModel(
     private fun isToolExecutionError(result: String): Boolean {
         return result.startsWith("搜索失败") ||
             result.startsWith("搜索执行失败") ||
+            result.startsWith("网页内容获取失败") ||
             result.startsWith("未知工具") ||
             result.startsWith("搜索关键词为空") ||
-            result.startsWith("搜索关键词或 URL 为空")
+            result.startsWith("URL 为空")
     }
 
     private fun buildToolFallbackMessage(toolExecutionSummaries: List<String>): String {

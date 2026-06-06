@@ -21,50 +21,44 @@ object WebSearchTool {
             .build()
     }
 
-    fun execute(input: String): String {
-        val normalizedInput = input.trim()
+    fun searchQuery(query: String): String {
         val startTime = System.currentTimeMillis()
-        Log.d(TAG, "execute start, inputLength=${normalizedInput.length}, input=${normalizedInput.take(120)}")
+        Log.d(TAG, "searchQuery start, queryLength=${query.length}, query=${query.take(120)}")
         return try {
-            if (normalizedInput.isBlank()) {
-                return "搜索关键词或 URL 为空"
-            }
-            if (looksLikeUrl(normalizedInput)) {
-                val url = normalizeUrl(normalizedInput)
-                val content = fetchUrl(url)
-                Log.d(
-                    TAG,
-                    "execute direct fetch success, elapsedMs=${System.currentTimeMillis() - startTime}, url=$url"
-                )
-                content
+            if (query.isBlank()) return "搜索关键词为空"
+            val results = search(query)
+            Log.d(TAG, "searchQuery success, resultCount=${results.size}, elapsedMs=${System.currentTimeMillis() - startTime}")
+            if (results.isEmpty()) {
+                "未找到与\"$query\"相关的搜索结果"
             } else {
-                val results = search(normalizedInput)
-                Log.d(
-                    TAG,
-                    "execute success, resultCount=${results.size}, elapsedMs=${System.currentTimeMillis() - startTime}"
-                )
-                if (results.isEmpty()) {
-                    "未找到与\"$normalizedInput\"相关的搜索结果"
-                } else {
-                    buildString {
-                        appendLine("以下是\"$normalizedInput\"的搜索结果：")
+                buildString {
+                    appendLine("以下是\"$query\"的搜索结果：")
+                    appendLine()
+                    results.forEachIndexed { index, result ->
+                        appendLine("${index + 1}. ${result.title}")
+                        appendLine("   链接: ${result.url}")
+                        appendLine("   摘要: ${result.snippet}")
                         appendLine()
-                        results.forEachIndexed { index, result ->
-                            appendLine("${index + 1}. ${result.title}")
-                            appendLine("   链接: ${result.url}")
-                            appendLine("   摘要: ${result.snippet}")
-                            appendLine()
-                        }
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e(
-                TAG,
-                "execute failed, elapsedMs=${System.currentTimeMillis() - startTime}, input=$normalizedInput",
-                e
-            )
+            Log.e(TAG, "searchQuery failed, elapsedMs=${System.currentTimeMillis() - startTime}, query=$query", e)
             "搜索失败: 网络超时或搜索服务暂时不可用，请稍后重试"
+        }
+    }
+
+    fun fetchContent(inputUrl: String): String {
+        val startTime = System.currentTimeMillis()
+        Log.d(TAG, "fetchContent start, url=$inputUrl")
+        return try {
+            val url = normalizeUrl(inputUrl)
+            val content = fetchUrl(url)
+            Log.d(TAG, "fetchContent success, elapsedMs=${System.currentTimeMillis() - startTime}, url=$url")
+            content
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchContent failed, elapsedMs=${System.currentTimeMillis() - startTime}, url=$inputUrl", e)
+            "网页内容获取失败: ${e.message ?: "未知错误"}"
         }
     }
 
@@ -263,20 +257,6 @@ object WebSearchTool {
         } else {
             rawUrl
         }
-    }
-
-    private fun looksLikeUrl(input: String): Boolean {
-        val trimmed = input.trim()
-        if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
-            return true
-        }
-        if (trimmed.startsWith("www.", ignoreCase = true)) {
-            return true
-        }
-        return runCatching {
-            val uri = java.net.URI(trimmed)
-            !uri.scheme.isNullOrBlank() && !uri.host.isNullOrBlank()
-        }.getOrDefault(false)
     }
 
     private fun normalizeUrl(input: String): String {
