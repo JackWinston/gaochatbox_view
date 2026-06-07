@@ -117,10 +117,28 @@ object WebSearchTool {
     }
 
     private fun executeRequest(url: String): String {
+        val referer = try {
+            val uri = java.net.URI(url)
+            "${uri.scheme}://${uri.host}/"
+        } catch (_: Exception) {
+            "https://www.google.com/"
+        }
+
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
             .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+            .header("Referer", referer)
+            .header("sec-ch-ua", "\"Chromium\";v=\"125\", \"Not.A/Brand\";v=\"24\", \"Google Chrome\";v=\"125\"")
+            .header("sec-ch-ua-mobile", "?0")
+            .header("sec-ch-ua-platform", "\"Windows\"")
+            .header("Sec-Fetch-Site", "none")
+            .header("Sec-Fetch-Mode", "navigate")
+            .header("Sec-Fetch-Dest", "document")
+            .header("Upgrade-Insecure-Requests", "1")
+            .header("Connection", "keep-alive")
+            .header("Cache-Control", "max-age=0")
             .build()
 
         val startTime = System.currentTimeMillis()
