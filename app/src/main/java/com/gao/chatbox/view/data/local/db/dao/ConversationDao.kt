@@ -48,12 +48,12 @@ interface ConversationDao {
             FROM messages
             WHERE id IN (SELECT MAX(id) FROM messages GROUP BY conversationId)
         ) m ON c.id = m.conversationId
-        WHERE c.displayTag = :tag
+        WHERE c.systemPromptTag = :tag
         ORDER BY c.updatedAt DESC
     """)
     fun getByTagWithLastMessage(tag: String): Flow<List<ConversationWithLastMessage>>
 
-    @Query("SELECT DISTINCT displayTag FROM conversations WHERE displayTag IS NOT NULL AND displayTag != ''")
+    @Query("SELECT DISTINCT systemPromptTag FROM conversations WHERE systemPromptTag IS NOT NULL AND systemPromptTag != ''")
     fun getDistinctTags(): Flow<List<String>>
 
     @Query("SELECT * FROM conversations WHERE id = :id")

@@ -22,6 +22,7 @@ import com.gao.chatbox.view.data.local.db.entity.ConversationWithLastMessage
 import com.gao.chatbox.view.databinding.FragmentHistoryBinding
 import com.gao.chatbox.view.ui.chat.ChatActivity
 import com.gao.chatbox.view.ui.debug.DebugLogActivity
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
@@ -140,17 +141,15 @@ class HistoryFragment : Fragment() {
     private fun observeData() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                launch {
-                    viewModel.conversations.collect { list ->
-                        val filter = viewModel.filter.value
-                        val filtered = if (filter != null) {
-                            list.filter { it.conversation.displayTag == filter }
-                        } else {
-                            list
-                        }
-                        adapter?.submitList(filtered)
-                        binding.tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+                combine(viewModel.conversations, viewModel.filter) { list, filter ->
+                    if (filter != null) {
+                        list.filter { it.conversation.systemPromptTag == filter }
+                    } else {
+                        list
                     }
+                }.collect { filtered ->
+                    adapter?.submitList(filtered)
+                    binding.tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
                 }
             }
         }
