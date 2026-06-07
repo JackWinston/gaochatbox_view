@@ -64,6 +64,7 @@ class ChatViewModel(
 
     companion object {
         private const val DEFAULT_MAX_TOOL_CALL_ROUNDS = 8
+        private val DSML_PATTERN = Regex("<｜｜DSML｜｜tool_calls>[\\s\\S]*?</｜｜DSML｜｜tool_calls>")
 
         // DataStore 偏好键
         private val KEY_WEB_SEARCH = booleanPreferencesKey("capability_web_search")
@@ -164,6 +165,22 @@ class ChatViewModel(
     private var currentToolCallRoundCount = 0
     /** 上下文压缩规划器 */
     private val contextCompressionPlanner = ContextCompressionPlanner()
+
+    /**
+     * 获取用于 API 调用的系统提示词
+     * 当启用联网搜索时，自动补充可用工具说明和调用轮次限制
+     */
+    private fun getEffectiveSystemPrompt(): String {
+        if (systemPromptContent.isBlank() || !_webSearchEnabled.value) return systemPromptContent
+        return buildString {
+            append(systemPromptContent)
+            appendLine()
+            appendLine("--- 可用工具 ---")
+            appendLine("1. search_web(query: string) - 搜索互联网获取最新信息。当需要查询实时信息、新闻、天气等时使用")
+            appendLine("2. fetch_webpage(url: string) - 抓取指定URL的网页内容。当需要读取某个网页的正文时使用")
+            appendLine("每次会话最多可调用工具 ${_maxToolCallRounds.value} 轮。请合理规划调用次数，优先使用最相关的工具获取信息。")
+        }
+    }
 
     /** 等待响应阶段枚举 */
     enum class PendingResponsePhase {
@@ -414,7 +431,7 @@ class ChatViewModel(
                 text = text,
                 attachmentName = attachment?.displayName,
                 fileContent = attachment?.fileContent,
-                systemPrompt = systemPromptContent,
+                systemPrompt = getEffectiveSystemPrompt(),
                 contextLimit = contextLimit,
                 enableWebSearch = _webSearchEnabled.value,
                 hasImageAttachment = attachment?.imageBase64 != null
@@ -460,7 +477,7 @@ class ChatViewModel(
                     history = plannedRequest.history,
                     config = config,
                     systemPromptTag = systemPromptTag.ifBlank { null },
-                    systemPrompt = systemPromptContent.ifBlank { null },
+                    systemPrompt = getEffectiveSystemPrompt().ifBlank { null },
                     conversationTitle = pendingConversationTitle(),
                     displayTag = pendingDisplayTag(),
                     imageBase64 = attachment?.imageBase64,
@@ -478,7 +495,7 @@ class ChatViewModel(
                 collectStream(
                     result = result,
                     config = config,
-                    systemPrompt = systemPromptContent,
+                    systemPrompt = getEffectiveSystemPrompt(),
                     allowToolCalls = _webSearchEnabled.value
                 )
             } catch (e: CancellationException) {
@@ -546,7 +563,7 @@ class ChatViewModel(
                         if (currentToolCallRoundCount >= _maxToolCallRounds.value) {
                             pendingToolCalls.clear()
                             if (toolFollowUpContext != null) {
-                                requestDirectAnswerAfterToolLimit(config, systemPrompt, toolFollowUpContext)
+                                requestDirectAnswerAfterToolLimit(config, systemPromptContent, toolFollowUpContext)
                             } else {
                                 showErrorMessage("已达到连续工具调用最大轮次（${_maxToolCallRounds.value}次），已停止继续调用工具。")
                                 finishStreaming()
@@ -716,7 +733,7 @@ class ChatViewModel(
         try {
             val plannedToolRequest = contextCompressionPlanner.planToolFollowUp(
                 historyItems = historyItems,
-                systemPrompt = systemPromptContent,
+                systemPrompt = getEffectiveSystemPrompt(),
                 contextLimit = resolveContextLimit(config),
                 enableWebSearch = _webSearchEnabled.value,
                 reservedTexts = buildReservedToolTexts(
@@ -794,6 +811,52 @@ class ChatViewModel(
                 allowToolCalls = false,
                 ignoreDisallowedToolCalls = true
             )
+
+            // 方案3: 检测 DSML 标记，忽略并重试一次
+            if (DSML_PATTERN.containsMatchIn(accumulatedContent)) {
+                val dsmlContent = accumulatedContent
+                DebugLogManager.appendLog(
+                    context, conversationId,
+                    "DSML Tool Calls Detected (Ignored)",
+                    "direct-answer-fallback", null, dsmlContent, isError = true
+                )
+                discardStreamingMessage()
+                accumulatedContent = ""
+                lastUIUpdateTime = 0L
+                activeStreamingItemId = null
+
+                val retryResult = chatRepository.sendToolResult(
+                    conversationId = conversationId,
+                    history = toolFollowUpContext.history,
+                    assistantContent = toolFollowUpContext.assistantContent,
+                    toolCalls = toolFollowUpContext.toolCalls,
+                    toolResults = toolFollowUpContext.toolResults,
+                    config = config,
+                    enableWebSearch = false,
+                    assistantMessageId = currentAssistantMessageId,
+                    directAnswerInstruction = context.getString(R.string.tool_limit_direct_answer_prompt)
+                )
+                collectStream(
+                    result = retryResult,
+                    config = config,
+                    systemPrompt = systemPrompt,
+                    allowToolCalls = false,
+                    ignoreDisallowedToolCalls = true
+                )
+
+                // 重试后仍然包含 DSML，丢弃并显示兜底消息
+                if (DSML_PATTERN.containsMatchIn(accumulatedContent)) {
+                    DebugLogManager.appendLog(
+                        context, conversationId,
+                        "DSML Tool Calls Detected Again After Retry (Giving Up)",
+                        "direct-answer-fallback", null, accumulatedContent, isError = true
+                    )
+                    discardStreamingMessage()
+                    accumulatedContent = ""
+                    showErrorMessage("模型未能生成有效回答，请重试")
+                    finishStreaming()
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

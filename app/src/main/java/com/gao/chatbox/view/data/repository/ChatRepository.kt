@@ -110,7 +110,7 @@ class ChatRepository @Inject constructor(
                     SseParser.parseAnthropicStream(responseBody),
                     convId,
                     "Anthropic Messages",
-                    "${config.apiUrl}/messages",
+                    config.apiUrl,
                     requestJson
                 )
             }
@@ -134,7 +134,7 @@ class ChatRepository @Inject constructor(
                     SseParser.parseOpenAiStream(responseBody),
                     convId,
                     "OpenAI Chat Completions",
-                    "${config.apiUrl}/chat/completions",
+                    config.apiUrl,
                     requestJson
                 )
             }
@@ -163,7 +163,7 @@ class ChatRepository @Inject constructor(
                 when (event) {
                     is StreamEvent.ContentDelta -> responseBuilder.append(event.text)
                     is StreamEvent.ToolCallDelta -> {
-                        responseBuilder.append("[tool_call:${event.functionName}]")
+                        event.functionName?.let { responseBuilder.append("[tool_call:$it]") }
                     }
                     is StreamEvent.StreamEnd -> {
                         val responseJson = gson.toJson(mapOf(
@@ -196,24 +196,36 @@ class ChatRepository @Inject constructor(
         val tools = if (enableWebSearch) buildWebSearchTools() else null
 
         val messages = history.toMutableList()
-        messages.add(
-            OpenAiChatMessage(
-                role = "assistant",
-                content = assistantContent,
-                toolCalls = toolCalls
-            )
-        )
-        toolCalls.forEach { toolCall ->
+        if (directAnswerInstruction.isNullOrBlank()) {
+            // 正常的工具调用流程：添加 assistant tool_calls 和 tool 响应
             messages.add(
                 OpenAiChatMessage(
-                    role = "tool",
-                    content = toolResults[toolCall.id] ?: "工具执行失败",
-                    toolCallId = toolCall.id,
-                    name = toolCall.function.name
+                    role = "assistant",
+                    content = assistantContent,
+                    toolCalls = toolCalls
                 )
             )
-        }
-        if (!directAnswerInstruction.isNullOrBlank()) {
+            toolCalls.forEach { toolCall ->
+                messages.add(
+                    OpenAiChatMessage(
+                        role = "tool",
+                        content = toolResults[toolCall.id] ?: "工具执行失败",
+                        toolCallId = toolCall.id,
+                        name = toolCall.function.name
+                    )
+                )
+            }
+        } else {
+            // 强制直接回答：不暴露 tool_calls 给模型
+            // 把每条工具结果包装成独立的用户消息
+            toolCalls.forEach { toolCall ->
+                messages.add(
+                    OpenAiChatMessage(
+                        role = "user",
+                        content = "[工具调用结果] ${toolResults[toolCall.id] ?: "工具执行失败"}"
+                    )
+                )
+            }
             messages.add(
                 OpenAiChatMessage(
                     role = "system",
@@ -245,7 +257,7 @@ class ChatRepository @Inject constructor(
                 SseParser.parseOpenAiStream(responseBody),
                 conversationId,
                 "OpenAI Tool Result",
-                "${config.apiUrl}/chat/completions",
+                config.apiUrl,
                 requestJson
             )
         )
@@ -288,10 +300,6 @@ class ChatRepository @Inject constructor(
         )
     }
 
-    suspend fun updateStreamingContent(messageId: Long, partialContent: String) {
-        dbManager.updateStreamingMessage(messageId, partialContent, tokenCount = 0)
-    }
-
     suspend fun finishMessage(messageId: Long, fullContent: String, tokenCount: Int? = null) {
         dbManager.finishStreamingMessage(messageId, fullContent, tokenCount = tokenCount ?: 0)
     }
@@ -318,7 +326,7 @@ class ChatRepository @Inject constructor(
                     val requestJson = gson.toJson(request)
                     val response = api.createMessage(apiKey = config.apiKey, request = request)
                     val result = response.content?.firstOrNull()?.text?.trim()
-                    DebugLogManager.appendLog(context, 0L, "Generate Title (Anthropic)", "${config.apiUrl}/messages", requestJson, gson.toJson(response))
+                    DebugLogManager.appendLog(context, 0L, "Generate Title (Anthropic)", config.apiUrl, requestJson, gson.toJson(response))
                     result
                 }
                 else -> {
@@ -335,7 +343,7 @@ class ChatRepository @Inject constructor(
                         request = request
                     )
                     val result = response.choices?.firstOrNull()?.message?.content?.toString()?.trim()
-                    DebugLogManager.appendLog(context, 0L, "Generate Title (OpenAI)", "${config.apiUrl}/chat/completions", requestJson, gson.toJson(response))
+                    DebugLogManager.appendLog(context, 0L, "Generate Title (OpenAI)", config.apiUrl, requestJson, gson.toJson(response))
                     result
                 }
             }
