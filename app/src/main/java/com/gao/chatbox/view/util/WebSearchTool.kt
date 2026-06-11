@@ -69,12 +69,12 @@ object WebSearchTool {
     )
 
     private fun search(query: String): List<SearchResult> {
-        Log.d(TAG, "search start, engines=[bing,duckduckgo]")
-        return runCatching { searchBing(query) }
-            .onFailure { Log.w(TAG, "bing failed, fallback to duckduckgo", it) }
+        Log.d(TAG, "search start, engines=[duckduckgo,bing]")
+        return runCatching { searchDuckDuckGo(query) }
+            .onFailure { Log.w(TAG, "duckduckgo failed, fallback to bing", it) }
             .getOrElse {
-                runCatching { searchDuckDuckGo(query) }
-                    .onFailure { error -> Log.e(TAG, "duckduckgo failed after bing fallback", error) }
+                runCatching { searchBing(query) }
+                    .onFailure { error -> Log.e(TAG, "bing failed after duckduckgo fallback", error) }
                     .getOrThrow()
             }
     }
